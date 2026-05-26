@@ -1366,6 +1366,11 @@ fun MultimediaTabSchema(viewModel: FtpViewModel, onNavigateToPlayer: () -> Unit)
                 onClick = { viewModel.setMultimediaSubTab(4) },
                 text = { Text("MIS PLAYLISTS", fontWeight = FontWeight.Bold, fontSize = 11.sp) }
             )
+            Tab(
+                selected = activeSubTab == 5,
+                onClick = { viewModel.setMultimediaSubTab(5) },
+                text = { Text("GRABACIONES", fontWeight = FontWeight.Bold, fontSize = 11.sp) }
+            )
         }
 
         Box(modifier = Modifier.weight(1f)) {
@@ -1375,6 +1380,219 @@ fun MultimediaTabSchema(viewModel: FtpViewModel, onNavigateToPlayer: () -> Unit)
                 2 -> FavoritesDetailsScreen(viewModel)
                 3 -> RecentTracksDetailsScreen(viewModel)
                 4 -> PlaylistsDetailsScreen(viewModel)
+                5 -> RecordingsLibraryDetailsScreen(viewModel, onNavigateToPlayer)
+            }
+        }
+    }
+}
+
+@Composable
+fun RecordingsLibraryDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val prefs = remember { context.getSharedPreferences("app_buffer_configs", android.content.Context.MODE_PRIVATE) }
+    var recordingPath by remember { mutableStateOf(prefs.getString("recording_destination_dir", "") ?: "") }
+    
+    val targetDir = if (recordingPath.isNotEmpty()) {
+        java.io.File(recordingPath)
+    } else {
+        java.io.File(context.filesDir, "grabaciones")
+    }
+    
+    var recordedFilesList by remember {
+        mutableStateOf(
+            if (targetDir.exists() && targetDir.isDirectory) {
+                targetDir.listFiles { _, name -> name.endsWith(".mp3") }?.sortedByDescending { it.lastModified() } ?: emptyList()
+            } else emptyList()
+        )
+    }
+
+    var searchQuery by remember { mutableStateOf("") }
+    
+    val filteredFiles = recordedFilesList.filter {
+        it.name.contains(searchQuery, ignoreCase = true)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = CyberSurface),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp)
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.FolderOpen,
+                        contentDescription = null,
+                        tint = CyberTeal,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Directorio de Grabación Activo:",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = targetDir.absolutePath,
+                    color = Color.Gray,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        TextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = { Text("Buscar grabaciones...", color = Color.Gray, fontSize = 11.sp) },
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = CyberSurface,
+                unfocusedContainerColor = CyberSurface,
+                focusedIndicatorColor = CyberTeal,
+                unfocusedIndicatorColor = Color.Transparent,
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White
+            ),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp)
+        )
+
+        if (filteredFiles.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Default.AudioFile,
+                        contentDescription = null,
+                        tint = CyberCharcoal,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = if (searchQuery.isNotEmpty()) "No se encontraron grabaciones coincidentes" else "No hay grabaciones de emisoras de radio",
+                        color = Color.Gray,
+                        fontSize = 11.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(filteredFiles) { file ->
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = file.name,
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "${String.format("%.2f", file.length() / (1024f * 1024f))} MB",
+                                        color = CyberTeal,
+                                        fontSize = 10.sp
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(
+                                        text = "Guardado localmente",
+                                        color = Color.Gray,
+                                        fontSize = 10.sp
+                                    )
+                                }
+                            }
+                            
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(
+                                    onClick = {
+                                        val playItem = com.example.data.model.PlaylistItem(
+                                            id = 0,
+                                            playlistId = -3,
+                                            fileName = file.name,
+                                            filePath = file.absolutePath,
+                                            fileSize = file.length(),
+                                            durationText = "Podcast Rec"
+                                        )
+                                        AudioPlayerManager.playTrack(context, playItem)
+                                        onNavigateToPlayer()
+                                        android.widget.Toast.makeText(context, "Reproduciendo grabación: ${file.name}", android.widget.Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = "Reproducir",
+                                        tint = CyberTeal,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                
+                                Spacer(modifier = Modifier.width(6.dp))
+                                
+                                IconButton(
+                                    onClick = {
+                                        try {
+                                            if (file.delete()) {
+                                                recordedFilesList = if (targetDir.exists() && targetDir.isDirectory) {
+                                                    targetDir.listFiles { _, name -> name.endsWith(".mp3") }?.sortedByDescending { it.lastModified() } ?: emptyList()
+                                                } else {
+                                                    emptyList()
+                                                }
+                                                android.widget.Toast.makeText(context, "Archivo eliminado", android.widget.Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                android.widget.Toast.makeText(context, "Error al borrar archivo", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            android.widget.Toast.makeText(context, "Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Eliminar",
+                                        tint = WarningHotPink,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1969,7 +2187,7 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
         }
     }
 
-    var activeSettingsTab by remember { mutableStateOf(0) } // 0 = FTP Servidores, 1 = Radios & Carpetas, 2 = Grabaciones, 3 = Memoria Caché, 4 = Permisos, 5 = Manual, 6 = Info
+    var activeSettingsTab by remember { mutableStateOf(0) } // 0 = FTP Servidores, 1 = Radios & Carpetas, 2 = Memoria Caché, 3 = Permisos, 4 = Manual, 5 = Cambios, 6 = Info
 
     Column(modifier = Modifier.fillMaxSize()) {
         ScrollableTabRow(
@@ -1991,22 +2209,22 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
             Tab(
                 selected = activeSettingsTab == 2,
                 onClick = { activeSettingsTab = 2 },
-                text = { Text("GRABACIONES 💾", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
+                text = { Text("MEMORIA CACHÉ 🧹", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
             )
             Tab(
                 selected = activeSettingsTab == 3,
                 onClick = { activeSettingsTab = 3 },
-                text = { Text("MEMORIA CACHÉ 🧹", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
+                text = { Text("PERMISOS ☑️", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
             )
             Tab(
                 selected = activeSettingsTab == 4,
                 onClick = { activeSettingsTab = 4 },
-                text = { Text("PERMISOS ☑️", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
+                text = { Text("MANUAL 📖", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
             )
             Tab(
                 selected = activeSettingsTab == 5,
                 onClick = { activeSettingsTab = 5 },
-                text = { Text("MANUAL 📖", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
+                text = { Text("NOVEDADES v1.1 📋", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
             )
             Tab(
                 selected = activeSettingsTab == 6,
@@ -2544,227 +2762,6 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                     }
                 }
                 2 -> {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        // Section 3: Grabaciones y Buffer Settings
-                        item {
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(Icons.Default.Tune, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(18.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Configuración de Grabaciones y Buffer", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                    Text("Personaliza el límite de almacenamiento para Timeshift de Radio Online y la carpeta de exportación.", fontSize = 10.sp, color = Color.Gray)
-                                    
-                                    Divider(color = CyberCharcoal)
-
-                                    Column {
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text("Límite Buffer Timeshift:", color = Color.LightGray, fontSize = 11.sp)
-                                            Text("$bufferLimitMins min", color = CyberTeal, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                        }
-                                        Slider(
-                                            value = bufferLimitMins.toFloat(),
-                                            onValueChange = {
-                                                bufferLimitMins = it.toInt()
-                                                prefs.edit().putInt("radio_buffer_limit_minutes", it.toInt()).apply()
-                                            },
-                                            valueRange = 10f..480f,
-                                            steps = 15,
-                                            colors = SliderDefaults.colors(
-                                                thumbColor = CyberTeal,
-                                                activeTrackColor = CyberTeal,
-                                                inactiveTrackColor = CyberCharcoal
-                                            )
-                                        )
-                                    }
-
-                                    Column {
-                                        Text("Directorio Guardado Grabaciones:", color = Color.LightGray, fontSize = 11.sp)
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        OutlinedTextField(
-                                            value = if (recordingPath.isEmpty()) "Predeterminado (Almacenamiento Interno)" else recordingPath,
-                                            onValueChange = {},
-                                            readOnly = true,
-                                            colors = OutlinedTextFieldDefaults.colors(
-                                                focusedBorderColor = CyberTeal,
-                                                unfocusedBorderColor = CyberCharcoal,
-                                                focusedTextColor = Color.White,
-                                                unfocusedTextColor = Color.White
-                                            ),
-                                            modifier = Modifier.fillMaxWidth(),
-                                            trailingIcon = {
-                                                IconButton(onClick = { recFolderLauncher.launch(null) }) {
-                                                    Icon(Icons.Default.FolderOpen, contentDescription = "Elegir Carpeta", tint = CyberTeal)
-                                                }
-                                            }
-                                        )
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Button(
-                                            onClick = { recFolderLauncher.launch(null) },
-                                            colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark),
-                                            shape = RoundedCornerShape(8.dp),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text("Elegir Carpeta Grabaciones", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        item {
-                            // Section: Mis Podmarks
-                            var podmarksList by remember { mutableStateOf(getPodmarks(context)) }
-                            
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Default.Bookmark, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(18.dp))
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text("MIS PODMARKS GUARDADOS 📍", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                        }
-                                        if (podmarksList.isNotEmpty()) {
-                                            Text(
-                                                text = "${podmarksList.size} marcas",
-                                                color = CyberTeal,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "Tus mejores momentos marcados en canciones o sesiones de radio. Pulsa para reproducir desde ese instante.",
-                                        fontSize = 10.sp,
-                                        color = Color.Gray
-                                    )
-                                    
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    HorizontalDivider(color = CyberCharcoal)
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    
-                                    if (podmarksList.isEmpty()) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .background(CyberDark, RoundedCornerShape(8.dp))
-                                                .padding(16.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = "No hay podmarks guardados.\nPulsa 'Crear Podmark' en el reproductor para guardar momentos.", 
-                                                color = Color.Gray, 
-                                                fontSize = 11.sp, 
-                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                            )
-                                        }
-                                    } else {
-                                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            podmarksList.forEachIndexed { idx, pm ->
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .background(CyberDark, RoundedCornerShape(8.dp))
-                                                        .padding(8.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.SpaceBetween
-                                                ) {
-                                                    Column(modifier = Modifier.weight(1f)) {
-                                                        Text(
-                                                            text = pm.trackName, 
-                                                            color = Color.White, 
-                                                            fontSize = 11.sp, 
-                                                            fontWeight = FontWeight.Bold, 
-                                                            maxLines = 1, 
-                                                            overflow = TextOverflow.Ellipsis
-                                                        )
-                                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                                            Text("Marca: ${pm.timestampText}", color = CyberTeal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                                            Spacer(modifier = Modifier.width(8.dp))
-                                                            Text(pm.createdAt, color = Color.Gray, fontSize = 9.sp)
-                                                        }
-                                                    }
-                                                    
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        IconButton(
-                                                            onClick = {
-                                                                // Play this track and seek to positionMs
-                                                                val isRadio = pm.filePath.startsWith("http://") || pm.filePath.startsWith("https://")
-                                                                
-                                                                val playlistItem = com.example.data.model.PlaylistItem(
-                                                                    id = 0,
-                                                                    playlistId = if (isRadio) -2 else -1,
-                                                                    fileName = pm.trackName,
-                                                                    filePath = pm.filePath,
-                                                                    fileSize = 0,
-                                                                    durationText = pm.timestampText
-                                                                )
-                                                                AudioPlayerManager.playTrack(context, playlistItem)
-                                                                
-                                                                scope.launch {
-                                                                    kotlinx.coroutines.delay(1200)
-                                                                    if (isRadio) {
-                                                                        AudioPlayerManager.seekRadioTimeShift((pm.positionMs / 1000L).toInt())
-                                                                    } else {
-                                                                        AudioPlayerManager.seekTo(pm.positionMs)
-                                                                    }
-                                                                }
-                                                                Toast.makeText(context, "Reproduciendo desde la marca ${pm.timestampText}", Toast.LENGTH_SHORT).show()
-                                                            },
-                                                            modifier = Modifier.size(32.dp)
-                                                        ) {
-                                                            Icon(Icons.Default.PlayArrow, contentDescription = "Reproducir marca", tint = CyberTeal, modifier = Modifier.size(18.dp))
-                                                        }
-                                                        
-                                                        IconButton(
-                                                            onClick = {
-                                                                val deleted = deletePodmark(context, idx)
-                                                                if (deleted) {
-                                                                    podmarksList = getPodmarks(context)
-                                                                    Toast.makeText(context, "Podmark eliminado", Toast.LENGTH_SHORT).show()
-                                                                }
-                                                            },
-                                                            modifier = Modifier.size(32.dp)
-                                                        ) {
-                                                            Icon(Icons.Default.Delete, contentDescription = "Eliminar de favoritos", tint = WarningHotPink, modifier = Modifier.size(18.dp))
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                3 -> {
                     var cacheData by remember { mutableStateOf(getCoverCacheInfo(context)) }
 
                     LazyColumn(
@@ -3029,7 +3026,7 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                         }
                     }
                 }
-                4 -> {
+                3 -> {
                     // Update check state dynamically of permissions
                     var hasIgnoreBattery by remember {
                         mutableStateOf(
@@ -3347,7 +3344,7 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                         }
                     }
                 }
-                5 -> {
+                4 -> {
                     // TAB 5: MANUAL DE USO INTERACTIVO
                     val categories = listOf(
                         Triple("🔌 Servidores FTP y Red Local", "Aprende a conectar y sincronizar tu propia biblioteca de música en la nube", 
@@ -3508,13 +3505,103 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                         }
                     }
                 }
+                5 -> {
+                    // TAB 5: LISTADO DE NOVEDADES Y CAMBIOS DE LA VERSIÓN v1.1
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(20.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Info, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(24.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Historial de Cambios - Versión 1.1 📋", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "¡Bienvenido a la actualización 1.1 de Pozo Media Hub! A continuación se detallan las mejoras e innovaciones introducidas en esta versión.",
+                                        fontSize = 11.sp,
+                                        color = Color.LightGray
+                                    )
+                                }
+                            }
+                        }
+
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Star, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Novedades Principales", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Row {
+                                            Text("💾", fontSize = 14.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Grabaciones integradas en Multimedia", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Hemos movido todas las capacidades de podcasts y grabaciones locales físicas, así como los Podmarks (marcadores de audio interactivos), de la pestaña ajustes a una nueva pestaña exclusiva en MULTIMEDIA, haciendo la navegación instantánea y directa.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("📦", fontSize = 14.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Actualizador de Dropbox Rediseñado", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Desconectamos permanentemente la distribución de código abierto de GitHub para enfocarnos exclusivamente en Dropbox. Ahora la aplicación v1.1 se actualiza de manera más estable desde tus links compartidos.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("🔧", fontSize = 14.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Apartado de Cambios (Changelog)", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Integrado este panel interactivo de novedades directamente en tus Ajustes del sistema para que nunca te pierdas de las últimas funciones de la aplicación.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+                                        
+                                        Row {
+                                            Text("🚀", fontSize = 14.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Optimización de Timeshift Buffer", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Mejoramos la latencia y la fluidez al pausar / reanudar y navegar las emisoras de radio online en tiempo real.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 6 -> {
-                    // TAB 6: INFO Y VERSIÓN CON ACTUALIZADOR DESDE GITHUB
-                    val currentVersionName = "1.0"
+                    // TAB 6: INFO Y VERSIÓN CON ACTUALIZADOR DROPBOX EXCLUSIVO (GITHUB ELIMINADO v1.1)
+                    val currentVersionName = "1.1"
                     
-                    var updateOwner by remember { mutableStateOf("danypozodesire") }
-                    var updateRepo by remember { mutableStateOf("pozo-media-hub") }
-                    var updateStatusMsg by remember { mutableStateOf("Listo para buscar actualizaciones.") }
+                    val updaterPrefs = remember { context.getSharedPreferences("app_updater_configs", android.content.Context.MODE_PRIVATE) }
+                    
+                    var dropboxVersionUrl by remember { mutableStateOf(updaterPrefs.getString("dropbox_version_url", "") ?: "") }
+                    var dropboxApkUrl by remember { mutableStateOf(updaterPrefs.getString("dropbox_apk_url", "") ?: "") }
+                    
+                    var updateStatusMsg by remember { mutableStateOf("Listo para buscar actualizaciones en Dropbox.") }
                     var updateNotes by remember { mutableStateOf("") }
                     var updateDownloadUrl by remember { mutableStateOf<String?>(null) }
                     var updateIsNewer by remember { mutableStateOf(false) }
@@ -3572,57 +3659,67 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(modifier = Modifier.padding(16.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.Sync,
-                                            contentDescription = null,
-                                            tint = CyberTeal,
-                                            modifier = Modifier.size(22.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "Comprobar Actualizaciones 🐙",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp,
-                                            color = Color.White
-                                        )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.Sync,
+                                                contentDescription = null,
+                                                tint = CyberTeal,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Actualizar Aplicación (Dropbox) 📦",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = Color.White
+                                            )
+                                        }
                                     }
-                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    
                                     Text(
-                                        text = "Sincroniza el código de tu repositorio. Introduce tu nombre de usuario y tu repositorio de GitHub para descargar la última compilación pública disponible.",
+                                        text = "Sube un archivo de texto simple a Dropbox que contenga el número de versión (ej: 1.1) y un archivo APK con la aplicación. Pega sus enlaces compartidos abajo para habilitar la búsqueda e instalación automatizada.",
                                         fontSize = 11.sp,
                                         color = Color.LightGray
                                     )
-                                    Spacer(modifier = Modifier.height(14.dp))
+                                    Spacer(modifier = Modifier.height(12.dp))
 
-                                    // Inputs para repositorio
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        OutlinedTextField(
-                                            value = updateOwner,
-                                            onValueChange = { updateOwner = it },
-                                            label = { Text("Usuario", fontSize = 10.sp, color = Color.Gray) },
-                                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = Color.White),
-                                            colors = OutlinedTextFieldDefaults.colors(
-                                                focusedBorderColor = CyberTeal,
-                                                unfocusedBorderColor = CyberCharcoal
-                                            ),
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        OutlinedTextField(
-                                            value = updateRepo,
-                                            onValueChange = { updateRepo = it },
-                                            label = { Text("Repositorio", fontSize = 10.sp, color = Color.Gray) },
-                                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = Color.White),
-                                            colors = OutlinedTextFieldDefaults.colors(
-                                                focusedBorderColor = CyberTeal,
-                                                unfocusedBorderColor = CyberCharcoal
-                                            ),
-                                            modifier = Modifier.weight(1.2f)
-                                        )
-                                    }
+                                    OutlinedTextField(
+                                        value = dropboxVersionUrl,
+                                        onValueChange = { 
+                                            dropboxVersionUrl = it 
+                                            updaterPrefs.edit().putString("dropbox_version_url", it).apply()
+                                        },
+                                        label = { Text("Enlace Dropbox a version.txt", fontSize = 10.sp, color = Color.Gray) },
+                                        placeholder = { Text("https://www.dropbox.com/.../version.txt?dl=0", fontSize = 10.sp, color = Color.DarkGray) },
+                                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = Color.White),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = CyberTeal,
+                                            unfocusedBorderColor = CyberCharcoal
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    OutlinedTextField(
+                                        value = dropboxApkUrl,
+                                        onValueChange = { 
+                                            dropboxApkUrl = it 
+                                            updaterPrefs.edit().putString("dropbox_apk_url", it).apply()
+                                        },
+                                        label = { Text("Enlace Dropbox a la APK", fontSize = 10.sp, color = Color.Gray) },
+                                        placeholder = { Text("https://www.dropbox.com/.../app.apk?dl=0", fontSize = 10.sp, color = Color.DarkGray) },
+                                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = Color.White),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = CyberTeal,
+                                            unfocusedBorderColor = CyberCharcoal
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
 
                                     Spacer(modifier = Modifier.height(16.dp))
 
@@ -3653,7 +3750,7 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                             if (updateNotes.isNotEmpty()) {
                                                 Spacer(modifier = Modifier.height(6.dp))
                                                 Text(
-                                                    text = "Notas de la nueva versión:",
+                                                    text = "Información del Servidor:",
                                                     fontSize = 10.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     color = CyberTeal
@@ -3674,57 +3771,106 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                     Button(
                                         onClick = {
                                             updateIsLoading = true
-                                            updateStatusMsg = "Conectando con GitHub..."
+                                            updateStatusMsg = "Conectando..."
                                             updateNotes = ""
                                             updateDownloadUrl = null
                                             updateIsNewer = false
                                             
                                             updateScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                                                 try {
-                                                    val url = java.net.URL("https://api.github.com/repos/$updateOwner/$updateRepo/releases/latest")
-                                                    val conn = url.openConnection() as java.net.HttpURLConnection
-                                                    conn.requestMethod = "GET"
-                                                    conn.setRequestProperty("Accept", "application/vnd.github.v3+json")
-                                                    conn.setRequestProperty("User-Agent", "Pozo-Media-Hub-Updater")
-                                                    conn.connectTimeout = 5000
-                                                    conn.readTimeout = 5000
-                                                    
-                                                    val responseCode = conn.responseCode
-                                                    if (responseCode == 200) {
-                                                        val jsonText = conn.inputStream.bufferedReader().use { it.readText() }
-                                                        val jsonObject = org.json.JSONObject(jsonText)
-                                                        val tagName = jsonObject.optString("tag_name", "v1.0")
-                                                        val body = jsonObject.optString("body", "Sin notas de versión.")
-                                                        val htmlUrl = jsonObject.optString("html_url", "")
-                                                        
-                                                        val cleanTag = tagName.lowercase().removePrefix("v").trim()
-                                                        val currentVer = currentVersionName.lowercase().removePrefix("v").trim()
-                                                        
-                                                        val isDifferent = cleanTag != currentVer && cleanTag.isNotEmpty()
-                                                        
+                                                    if (dropboxVersionUrl.isBlank()) {
                                                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                                                             updateIsLoading = false
-                                                            updateDownloadUrl = if (htmlUrl.isNotEmpty()) htmlUrl else "https://github.com/$updateOwner/$updateRepo/releases"
-                                                            if (isDifferent) {
-                                                                updateIsNewer = true
-                                                                updateStatusMsg = "✨ ¡NUEVA VERSIÓN DETECTADA: $tagName! ✨"
-                                                                updateNotes = body
+                                                            updateStatusMsg = "⚠️ Por favor, introduce primero un enlace válido de Dropbox para tu version.txt."
+                                                        }
+                                                        return@launch
+                                                    }
+                                                    
+                                                    var formattedUrl = dropboxVersionUrl.trim()
+                                                    if (formattedUrl.contains("dropbox.com")) {
+                                                        formattedUrl = formattedUrl
+                                                            .replace("www.dropbox.com", "dl.dropboxusercontent.com")
+                                                            .replace("dl=0", "dl=1")
+                                                        if (!formattedUrl.contains("dl=1") && !formattedUrl.contains("raw=1")) {
+                                                            formattedUrl += (if (formattedUrl.contains("?")) "&" else "?") + "dl=1"
+                                                        }
+                                                    }
+                                                    
+                                                    val url = java.net.URL(formattedUrl)
+                                                    val conn = url.openConnection() as java.net.HttpURLConnection
+                                                    conn.requestMethod = "GET"
+                                                    conn.connectTimeout = 8000
+                                                    conn.readTimeout = 8000
+                                                    
+                                                    val responseCode = conn.responseCode
+                                                    if (responseCode == 200 || responseCode == 302) {
+                                                        val realConn = if (responseCode == 302) {
+                                                            val redirectUrl = conn.getHeaderField("Location")
+                                                            val rUrl = java.net.URL(redirectUrl)
+                                                            (rUrl.openConnection() as java.net.HttpURLConnection).apply {
+                                                                requestMethod = "GET"
+                                                                connectTimeout = 8000
+                                                                readTimeout = 8000
+                                                            }
+                                                        } else conn
+                                                        
+                                                        val rawText = realConn.inputStream.bufferedReader().use { it.readText() }.trim()
+                                                        
+                                                        if (rawText.contains("<html", ignoreCase = true) || rawText.startsWith("<!")) {
+                                                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                                                updateIsLoading = false
+                                                                updateStatusMsg = "⚠️ El enlace no apunta al texto directo sino a la web de Dropbox.\n\nAsegúrate de copiar el 'Enlace Compartido' y que empiece por https://www.dropbox.com/."
+                                                            }
+                                                        } else {
+                                                            val cleanTag = rawText.lowercase().removePrefix("v").trim()
+                                                            val currentVer = currentVersionName.lowercase().removePrefix("v").trim()
+                                                            
+                                                            if (cleanTag.length > 20 || cleanTag.isEmpty()) {
+                                                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                                                    updateIsLoading = false
+                                                                    updateStatusMsg = "⚠️ Contenido inválido leído en Dropbox: '$rawText'. El fichero 'version.txt' de Dropbox debe contener SOLAMENTE el número de versión (ej: 1.1) en texto plano."
+                                                                }
                                                             } else {
-                                                                updateIsNewer = false
-                                                                updateStatusMsg = "✅ Tu aplicación está en la última versión oficial (v$currentVersionName)."
-                                                                updateNotes = "No hay nuevas actualizaciones disponibles para el repositorio $updateOwner/$updateRepo."
+                                                                val isDifferent = cleanTag != currentVer
+                                                                
+                                                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                                                    updateIsLoading = false
+                                                                    
+                                                                    var apkDownloadUrl = dropboxApkUrl.trim()
+                                                                    if (apkDownloadUrl.isBlank()) {
+                                                                        apkDownloadUrl = dropboxVersionUrl.trim() // fallback
+                                                                    } else if (apkDownloadUrl.contains("dropbox.com")) {
+                                                                        apkDownloadUrl = apkDownloadUrl
+                                                                            .replace("www.dropbox.com", "dl.dropboxusercontent.com")
+                                                                            .replace("dl=0", "dl=1")
+                                                                        if (!apkDownloadUrl.contains("dl=1") && !apkDownloadUrl.contains("raw=1")) {
+                                                                            apkDownloadUrl += (if (apkDownloadUrl.contains("?")) "&" else "?") + "dl=1"
+                                                                        }
+                                                                    }
+                                                                    
+                                                                    updateDownloadUrl = apkDownloadUrl
+                                                                    if (isDifferent) {
+                                                                        updateIsNewer = true
+                                                                        updateStatusMsg = "✨ ¡NUEVA ACTUALIZACIÓN DETECTADA EN DROPBOX: v$cleanTag! ✨"
+                                                                        updateNotes = "Descarga el archivo APK directamente de tu cuenta de Dropbox para su instalación."
+                                                                    } else {
+                                                                        updateIsNewer = false
+                                                                        updateStatusMsg = "✅ Tu aplicación está en la última versión oficial (v$currentVersionName)."
+                                                                        updateNotes = "El archivo version.txt leído de Dropbox indica que la versión remota idéntica es v$cleanTag."
+                                                                    }
+                                                                }
                                                             }
                                                         }
                                                     } else {
                                                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                                                             updateIsLoading = false
-                                                            updateStatusMsg = "⚠️ Repositorio no encontrado (Código $responseCode). Verifique el nombre de usuario y repositorio de GitHub."
+                                                            updateStatusMsg = "⚠️ No se pudo leer el archivo de versión (Código $responseCode). Comprueba que el enlace compartido de Dropbox sea público."
                                                         }
                                                     }
                                                 } catch (e: Exception) {
                                                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                                                         updateIsLoading = false
-                                                        updateStatusMsg = "❌ Error de conexión: ${e.localizedMessage ?: "Consulte su conexión a Internet"}"
+                                                        updateStatusMsg = "❌ Error de conexión: ${e.localizedMessage ?: "Consulte su conexión"}"
                                                     }
                                                 }
                                             }
@@ -3766,7 +3912,7 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                             shape = RoundedCornerShape(8.dp)
                                         ) {
                                             Text(
-                                                text = if (updateIsNewer) "DESCARGAR NUEVA APK AHORA ESTABLE 📩" else "ABRIR APARTADO DE DESCARGAS 🌐",
+                                                text = if (updateIsNewer) "DESCARGAR APK NUEVA AHORA 📩" else "ABRIR ENLACE DE CONEXIÓN 🌐",
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
@@ -3784,14 +3930,14 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                             ) {
                                 Column(modifier = Modifier.padding(16.dp)) {
                                     Text(
-                                        text = "Aviso de Sincronización GitHub 🔔",
+                                        text = "Aviso de Sincronización y Actualizaciones 🔔",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 12.sp,
                                         color = Color.White
                                     )
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
-                                        text = "Cuando pulsas un cambio en el editor web de AI Studio, éste se procesa y recarga instantáneamente en esta pestaña simulada. Al exportar tu código a un repositorio público de GitHub, cada nuevo release que publiques allí será accesible directamente a través de esta utilidad de chequeo inteligente para actualizar convenientemente las terminales Android físicas de tus usuarios finales.",
+                                        text = "La opción de Dropbox es perfecta para una distribución privada rápida sin configurar repositorios complejos. Al crear un enlace compartido en Dropbox, asegúrate de que el enlace sea de acceso público para que la app pueda descargar directamente el APK.",
                                         fontSize = 10.5.sp,
                                         color = Color.Gray,
                                         lineHeight = 15.sp

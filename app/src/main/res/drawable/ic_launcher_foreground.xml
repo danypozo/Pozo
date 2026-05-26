@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Neon Background Glow & Audio Waves (Equalizer) -->
+    <!-- Equalizer bar left 1 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#E23E57"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M24,42L24,56" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF007F"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M30,34L30,64" />
+    <!-- Equalizer bar left 2 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#00ADB5"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M37,25L37,70" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#9900EF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M44,20L44,78" />
+
+    <!-- Equalizer bar right 1 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#00ADB5"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M64,20L64,78" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#9900EF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M71,25L71,70" />
+    <!-- Equalizer bar right 2 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF007F"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M78,34L78,64" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#E23E57"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M84,42L84,56" />
+
+    <!-- 3D Tilted Vinyl Plate (Isometric/Perspective view of Vinyl) -->
+    <!-- Outer rim glow -->
+    <path
+        android:fillColor="#1A1F29"
+        android:strokeColor="#00ADB5"
+        android:strokeWidth="2.5"
+        android:pathData="M16,56 C16,42 33,34 54,34 C75,34 92,42 92,56 C92,70 75,78 54,78 C33,78 16,70 16,56 Z" />
+        
+    <!-- Shading rim border -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#1F2430"
+        android:strokeWidth="3.0"
+        android:pathData="M20,56 C20,44 35,37 54,37 C73,37 88,44 88,56 C88,68 73,75 54,75 C35,75 20,68 20,56 Z" />
+
+    <!-- Sound disc record groove tracks -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#3F4E5A"
+        android:strokeWidth="1.0"
+        android:pathData="M25,56 C25,46 38,40 54,40 C70,40 83,46 83,56 C83,66 70,72 54,72 C38,72 25,66 25,56 Z" />
+        
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#3F4E5A"
+        android:strokeWidth="1.0"
+        android:pathData="M31,56 C31,48 41,43 54,43 C67,43 77,48 77,56 C77,64 67,69 54,69 C41,69 31,64 31,56 Z" />
+
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#3F4E5A"
+        android:strokeWidth="1.0"
+        android:pathData="M38,56 C38,50 45,46 54,46 C63,46 70,50 70,56 C70,62 63,66 54,66 C45,66 38,62 38,56 Z" />
+
+    <!-- Center hole ring (Vinyl Label) -->
+    <path
+        android:fillColor="#222831"
+        android:strokeColor="#E23E57"
+        android:strokeWidth="1.5"
+        android:pathData="M46,56 C46,52 49.5,49 54,49 C58.5,49 62,52 62,56 C62,60 58.5,63 54,63 C49.5,63 46,60 46,56 Z" />
+
+    <!-- Center hole -->
+    <path
+        android:fillColor="#11141A"
+        android:pathData="M50,56 C50,53.8 51.8,52 54,52 C56.2,52 58,53.8 58,56 C58,58.2 56.2,60 54,60 C51.8,60 50,58.2 50,56 Z" />
+
+    <!-- Glowing Double-Beamed Music Note (Neon Cyan & Purple Pink) -->
+    <!-- Left note bulb (tilted) -->
+    <path
+        android:fillColor="#00ADB5"
+        android:pathData="M38,48 C38,44.5 41,42 44.5,42 C48,42 50,44.5 50,48 C50,51.5 46,54 42.5,54 C39,54 38,51.5 38,48 Z" />
+    
+    <!-- Right note bulb (tilted) -->
+    <path
+        android:fillColor="#FF007F"
+        android:pathData="M58,40 C58,36.5 61,34 64.5,34 C68,34 70,36.5 70,40 C70,43.5 66,46 62.5,46 C59,46 58,43.5 58,40 Z" />
+
+    <!-- Left stem -->
+    <path
+        android:fillColor="#00ADB5"
+        android:pathData="M47,24 L49.5,24 L49.5,44 L47,44 Z" />
+        
+    <!-- Right stem -->
+    <path
+        android:fillColor="#FF007F"
+        android:pathData="M67,16 L69.5,16 L69.5,36 L67,36 Z" />
+
+    <!-- Connected Beam (gradient simulation) -->
+    <path
+        android:fillColor="#00ADB5"
+        android:pathData="M47,20 L69.5,11.5 L69.5,17.5 L47,26 Z" />
+</vector>

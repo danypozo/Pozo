@@ -1024,7 +1024,7 @@ class FtpViewModel(application: Application) : AndroidViewModel(application) {
 
                     if (dt.isFtp) {
                         var durationTxt = cachedTrack?.durationText ?: "03:00"
-                        var title = cachedTrack?.title ?: dt.name.substringBeforeLast('.')
+                        val title = dt.name.substringBeforeLast('.')
                         var artist = cachedTrack?.artist ?: "Servidor FTP: ${dt.connectionName}"
                         var album = cachedTrack?.album ?: (dt.albumName ?: "Música Remota")
 
@@ -1084,7 +1084,7 @@ class FtpViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     } else if (dt.isSaf) {
                         var durationTxt = cachedTrack?.durationText ?: "03:00"
-                        var title = cachedTrack?.title ?: dt.name.substringBeforeLast('.')
+                        val title = dt.name.substringBeforeLast('.')
                         var artist = cachedTrack?.artist ?: "Dispositivo Local"
                         var album = cachedTrack?.album ?: "Desconocido"
 
@@ -1094,7 +1094,6 @@ class FtpViewModel(application: Application) : AndroidViewModel(application) {
                                 val uri = Uri.parse(dt.filePath)
                                 context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
                                     retriever.setDataSource(pfd.fileDescriptor)
-                                    title = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE) ?: dt.name.substringBeforeLast('.')
                                     artist = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: "Dispositivo Local"
                                     album = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM) ?: "Desconocido"
                                     val durMsStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
@@ -1126,7 +1125,7 @@ class FtpViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         )
                     } else {
-                        var title = cachedTrack?.title ?: dt.name.substringBeforeLast('.')
+                        val title = dt.name.substringBeforeLast('.')
                         var artist = cachedTrack?.artist ?: "Dispositivo Local"
                         var album = cachedTrack?.album ?: "Desconocido"
                         var durationTxt = cachedTrack?.durationText ?: "03:00"
@@ -1135,7 +1134,6 @@ class FtpViewModel(application: Application) : AndroidViewModel(application) {
                             val mmr = android.media.MediaMetadataRetriever()
                             try {
                                 mmr.setDataSource(dt.filePath)
-                                title = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE) ?: dt.name.substringBeforeLast('.')
                                 artist = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: "Dispositivo Local"
                                 album = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM) ?: "Desconocido"
                                 val durMsStr = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
@@ -2131,7 +2129,7 @@ class FtpViewModel(application: Application) : AndroidViewModel(application) {
                             tracks.add(
                                 com.example.data.model.LocalMusicTrack(
                                     filePath = dt.filePath,
-                                    title = dt.remotePath ?: dt.name.substringBeforeLast('.'),
+                                    title = dt.name.substringBeforeLast('.'),
                                     artist = dt.connectionName ?: "Desconocido",
                                     album = dt.albumName ?: "Desconocido",
                                     genre = "Desconocido".also { addScannedFileLog("[Media] ${dt.remotePath} - ${dt.connectionName}") },
@@ -2142,7 +2140,7 @@ class FtpViewModel(application: Application) : AndroidViewModel(application) {
                                 )
                             )
                         } else {
-                            var title = dt.name.substringBeforeLast('.')
+                            val title = dt.name.substringBeforeLast('.')
                             var artist = "Desconocido"
                             var album = "Desconocido"
                             var durationTxt = "03:00"
@@ -2151,7 +2149,6 @@ class FtpViewModel(application: Application) : AndroidViewModel(application) {
                                 val mmr = android.media.MediaMetadataRetriever()
                                 try {
                                     mmr.setDataSource(dt.filePath)
-                                    title = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE) ?: dt.name.substringBeforeLast('.')
                                     artist = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: "Desconocido"
                                     album = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM) ?: "Desconocido"
                                     val durMsStr = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)

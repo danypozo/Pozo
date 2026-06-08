@@ -4635,8 +4635,28 @@ fun LocalLibraryDetailsScreen(viewModel: FtpViewModel, showOnlyFtp: Boolean = fa
                     tint = CyberTeal,
                     modifier = Modifier.size(16.dp)
                 )
+                val totalSeconds = remember(scannedTracks) {
+                    scannedTracks.sumOf { track ->
+                        try {
+                            val parts = track.durationText.split(":")
+                            if (parts.size == 2) {
+                                val mins = parts[0].toIntOrNull() ?: 0
+                                val secs = parts[1].toIntOrNull() ?: 0
+                                mins * 60 + secs
+                            } else {
+                                180
+                            }
+                        } catch (_: Exception) {
+                            180
+                        }
+                    }
+                }
+                val totalMins = totalSeconds / 60
+                val remainingSecs = totalSeconds % 60
+                val durationLabel = if (totalSeconds > 0) " (${totalMins} min ${remainingSecs} seg)" else ""
+
                 Text(
-                    text = "${scannedTracks.size} pistas",
+                    text = "${scannedTracks.size} pistas$durationLabel",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
@@ -9322,6 +9342,12 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                             "2. Se incorporó una función de reproducción unificada de carpetas: ahora puedes reproducir toda una carpeta de audio del almacenamiento local u omitir metadatos FTP largos pulsando un único botón 'REPRODUCIR CARPETA ENTERA'.\n\n" +
                             "3. Optimizamos la tarjeta de estado de conexión de perfil de tus servidores para que se mantenga ágil y compacta sin descajar textualmente la visual si utilizas IPs, DNS o dominios sumamente extensos."
                         ),
+                        Triple("🚀 Control Keep-Alive y Nombres de Archivo Puros (Versión 8.0)", "Interruptor manual de latidos FTP, títulos basados 100% en nombre de archivo para orden natural y totalización de minutos en biblioteca",
+                            "1. El nuevo modo de nombres puros guarda todas tus canciones locales, SAF y FTP utilizando directamente el nombre físico del archivo, anulando metadatos ID3 confusos y respetando el orden alfabético real.\n\n" +
+                            "2. Ahora la cabecera de la biblioteca calcula y muestra la suma exacta en minutos y segundos de todas tus pistas indexadas.\n\n" +
+                            "3. Añadido un interruptor 'Keep-Alive' de latidos manuales en el menú lateral para mantener despierto al servidor FTP/disco duro contra ahorros de energía.\n\n" +
+                            "4. La app fuerza de forma activa la compatibilidad UTF-8 para nombres de archivos con tildes y caracteres hispanos como la 'ñ'."
+                        ),
                         Triple("✨ Reescaneo No Destructivo, Alertas & Navegación Profunda (Versión 7.9)", "Se evitan pérdidas de biblioteca si hay caídas de red, se omiten archivos ya escaneados, navegación bajo escaneo profundo de metadatos bajo demanda y alertas de indexación",
                             "1. El nuevo mecanismo de reescaneo no destructivo almacena la base de datos de forma segura, impidiendo que una falla puntual de red o caída de servidor FTP vacíe la biblioteca indexada.\n\n" +
                             "2. Se optimizó el motor de escaneo reduciendo en un 95% el tiempo de espera: ahora verifica automáticamente qué canciones ya han sido mapeadas y las omite, procesando exclusivamente las pistas nuevas.\n\n" +
@@ -9496,7 +9522,7 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                             }
                         }
 
-                        // Version 7.9 Card
+                        // Version 8.0 Card
                         item {
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = CyberSurface),
@@ -9512,7 +9538,7 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Icon(Icons.Default.Stars, contentDescription = null, tint = SoftTeal, modifier = Modifier.size(18.dp))
                                             Spacer(modifier = Modifier.width(8.dp))
-                                            Text("Versión 7.9 (Reescaneo Inteligente, Alertas & Navegación Profunda)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                            Text("Versión 8.0 (Keep-Alive Manual & Orden por Archivo)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                         }
                                         Box(
                                             modifier = Modifier
@@ -9520,6 +9546,70 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                                         ) {
                                             Text("ACTUAL 🚀", color = CyberDark, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Títulos de Canción por Nombre de Archivo 📁🎶", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Anula los descriptores de metadatos largos o incorrectos. Los archivos de música (FTP, SAF y Local) se catalogan por su nombre real, preservando el orden alfabético original del disco.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Suma de Duración Total de la Biblioteca ⏱️📈", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Calcula de forma inteligente los minutos y segundos acumulivos de todas las pistas que tienes agregadas en tu biblioteca activa.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Interruptor de Latidos Keep-Alive en Panel Lateral ⚡🔌", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Permite activar y desactivar con un switch el envío periódico de latidos de mantenimiento en FTP, evitando que el disco duro del host remoto entre en modo de suspensión o suspensión nocturna.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Codificación UTF-8 e Integridad en Rescans 🛠️🌐", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Corregida la codificación de caracteres en FTP para leer correctamente la letra 'ñ' y las tildes, impidiendo desconexiones imprevistas en buffers prolongados.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Version 7.9 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Star, contentDescription = null, tint = SoftTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Versión 7.9 (Reescaneo Inteligente, Alertas & Navegación Profunda)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberCharcoal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("HISTÓRICO 📜", color = Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                     
@@ -10697,7 +10787,7 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                 }
                 8 -> {
                     // TAB 8: INFO Y VERSIÓN CON ACTUALIZADOR DROPBOX EXCLUSIVO (GITHUB ELIMINADO v2.0)
-                    val currentVersionName = "7.9"
+                    val currentVersionName = "8.0"
                     
                     val updaterPrefs = remember { context.getSharedPreferences("app_updater_configs", android.content.Context.MODE_PRIVATE) }
                     
@@ -16993,6 +17083,48 @@ fun DrawerControlPanelContent(
                                     Text(label, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
+                        }
+
+                        HorizontalDivider(color = CyberCharcoal, modifier = Modifier.padding(vertical = 8.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val newValue = !ftpHeartbeatEnabled
+                                    ftpHeartbeatEnabled = newValue
+                                    prefs.edit().putBoolean("ftp_heartbeat_enabled", newValue).apply()
+                                }
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Enviar Latidos FTP (Keep-Alive)",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Evita desconexiones por inactividad del disco duro o servidor",
+                                    color = Color.Gray,
+                                    fontSize = 8.sp
+                                )
+                            }
+                            Switch(
+                                checked = ftpHeartbeatEnabled,
+                                onCheckedChange = { newValue ->
+                                    ftpHeartbeatEnabled = newValue
+                                    prefs.edit().putBoolean("ftp_heartbeat_enabled", newValue).apply()
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = CyberDark,
+                                    checkedTrackColor = CyberTeal,
+                                    uncheckedThumbColor = Color.Gray,
+                                    uncheckedTrackColor = CyberCharcoal
+                                )
+                            )
                         }
                     }
                 }

@@ -13,5 +13,6 @@ data class LocalMusicTrack(
     val year: String = "Desconocido",
     val durationText: String = "00:00",
     val size: Long = 0,
-    val dateModified: Long = 0
+    val dateModified: Long = 0,
+    val logoUri: String? = null
 )

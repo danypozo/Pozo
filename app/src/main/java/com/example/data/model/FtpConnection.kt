@@ -12,5 +12,7 @@ data class FtpConnection(
     val username: String = "anonymous",
     val password: String = "",
     val defaultPath: String = "/",
-    val musicFolder: String = "/"
+    val musicFolder: String = "/",
+    val homeSsid: String = "",
+    val localIp: String = ""
 )

@@ -10,5 +10,7 @@ data class RecentTrack(
     val playlistId: Int,
     val fileSize: Long = 0,
     val durationText: String = "00:00",
-    val playedAt: Long = System.currentTimeMillis()
+    val playedAt: Long = System.currentTimeMillis(),
+    val logoUri: String? = null
 )
+

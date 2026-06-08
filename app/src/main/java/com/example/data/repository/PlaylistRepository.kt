@@ -35,6 +35,10 @@ class PlaylistRepository(private val playlistDao: PlaylistDao) {
         playlistDao.deletePlaylistItem(item)
     }
 
+    suspend fun updatePlaylist(playlist: Playlist) {
+        playlistDao.updatePlaylist(playlist)
+    }
+
     suspend fun clearPlaylist(playlistId: Int) {
         playlistDao.clearPlaylist(playlistId)
     }

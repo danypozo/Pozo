@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface RecentTrackDao {
-    @Query("SELECT * FROM recent_tracks ORDER BY playedAt DESC LIMIT 10")
+    @Query("SELECT * FROM recent_tracks ORDER BY playedAt DESC LIMIT 20")
     fun getRecentTracks(): Flow<List<RecentTrack>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

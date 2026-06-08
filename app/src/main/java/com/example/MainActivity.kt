@@ -18,11 +18,28 @@ class MainActivity : ComponentActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    com.example.ui.theme.AppThemeManager.init(applicationContext)
     enableEdgeToEdge()
+
+    // Check if started from widget to open reproducer screen
+    val openPlayer = intent?.getBooleanExtra("open_player", false) == true
+    if (openPlayer) {
+      ftpViewModel.setCurrentMainTab(3)
+    }
+
     setContent {
       MyApplicationTheme {
         MainAppScreen(viewModel = ftpViewModel)
       }
+    }
+  }
+
+  override fun onNewIntent(intent: android.content.Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    val openPlayer = intent.getBooleanExtra("open_player", false) == true
+    if (openPlayer) {
+      ftpViewModel.setCurrentMainTab(3)
     }
   }
 }

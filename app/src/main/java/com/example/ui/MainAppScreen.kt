@@ -1,9 +1,10 @@
 package com.example.ui
 
 import android.app.Application
-import android.widget.Toast
+import com.example.ui.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -54,6 +56,8 @@ import kotlinx.coroutines.CoroutineScope
 import com.example.ui.theme.CyberSurface
 import com.example.ui.theme.CyberTeal
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.ui.graphics.asImageBitmap
@@ -80,12 +84,124 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
 
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun MarqueeText(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+    fontSize: androidx.compose.ui.unit.TextUnit = androidx.compose.ui.unit.TextUnit.Unspecified,
+    fontWeight: FontWeight? = null,
+    textAlign: androidx.compose.ui.text.style.TextAlign? = null,
+    maxLines: Int = 1,
+    overflow: TextOverflow = TextOverflow.Clip
+) {
+    Text(
+        text = text,
+        color = color,
+        fontSize = fontSize,
+        fontWeight = fontWeight,
+        textAlign = textAlign,
+        maxLines = maxLines,
+        overflow = overflow,
+        modifier = modifier.basicMarquee()
+    )
+}
+
+fun getLockedPodcastPaths(context: android.content.Context): Set<String> {
+    val file = java.io.File(context.filesDir, "locked_paths.txt")
+    if (file.exists()) {
+        try {
+            return file.readLines().map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    val prefs = context.getSharedPreferences("podcast_locks", android.content.Context.MODE_PRIVATE)
+    val set = prefs.getStringSet("locked_paths", emptySet()) ?: emptySet()
+    if (set.isNotEmpty()) {
+        saveLockedPodcastPaths(context, set)
+    }
+    return set
+}
+
+fun saveLockedPodcastPaths(context: android.content.Context, paths: Set<String>) {
+    val file = java.io.File(context.filesDir, "locked_paths.txt")
+    try {
+        file.writeText(paths.joinToString("\n"))
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+    val prefs = context.getSharedPreferences("podcast_locks", android.content.Context.MODE_PRIVATE)
+    prefs.edit().putStringSet("locked_paths", paths).apply()
+}
+
+fun getLockedPodmarks(context: android.content.Context): Set<String> {
+    val file = java.io.File(context.filesDir, "locked_signatures.txt")
+    if (file.exists()) {
+        try {
+            return file.readLines().map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    val prefs = context.getSharedPreferences("podmark_locks", android.content.Context.MODE_PRIVATE)
+    val set = prefs.getStringSet("locked_signatures", emptySet()) ?: emptySet()
+    if (set.isNotEmpty()) {
+        saveLockedPodmarks(context, set)
+    }
+    return set
+}
+
+fun saveLockedPodmarks(context: android.content.Context, signatures: Set<String>) {
+    val file = java.io.File(context.filesDir, "locked_signatures.txt")
+    try {
+        file.writeText(signatures.joinToString("\n"))
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+    val prefs = context.getSharedPreferences("podmark_locks", android.content.Context.MODE_PRIVATE)
+    prefs.edit().putStringSet("locked_signatures", signatures).apply()
+}
+
 sealed class Screen(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     object Browser : Screen("Explorar", Icons.Default.FolderOpen)
     object Radios : Screen("Radios", Icons.Default.Radio)
     object Multimedia : Screen("Multimedia", Icons.Default.MusicNote)
     object Player : Screen("Reproductor", Icons.Default.PlayCircleFilled)
     object Settings : Screen("Ajustes", Icons.Default.Settings)
+}
+
+@Composable
+fun Screen.getStyledIcon(): androidx.compose.ui.graphics.vector.ImageVector {
+    val style = com.example.ui.theme.AppThemeManager.iconStyle
+    return when (this) {
+        is Screen.Browser -> when (style) {
+            "retro_color" -> Icons.Default.FolderOpen
+            "modern_color" -> Icons.Default.Explore
+            else -> Icons.Default.Folder
+        }
+        is Screen.Radios -> when (style) {
+            "retro_color" -> Icons.Default.Radio
+            "modern_color" -> Icons.Default.SettingsInputAntenna
+            else -> Icons.Default.Radio
+        }
+        is Screen.Multimedia -> when (style) {
+            "retro_color" -> Icons.Default.LibraryMusic
+            "modern_color" -> Icons.Default.MusicNote
+            else -> Icons.Default.QueueMusic
+        }
+        is Screen.Player -> when (style) {
+            "retro_color" -> Icons.Default.Album
+            "modern_color" -> Icons.Default.PlayCircleFilled
+            else -> Icons.Default.PlayArrow
+        }
+        is Screen.Settings -> when (style) {
+            "retro_color" -> Icons.Default.Tune
+            "modern_color" -> Icons.Default.Settings
+            else -> Icons.Default.Build
+        }
+    }
 }
 
 @Composable
@@ -162,8 +278,52 @@ fun PozoBrandLogo(modifier: Modifier = Modifier) {
 fun MainAppScreen(viewModel: FtpViewModel) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var currentTab by remember { mutableStateOf<Screen>(Screen.Multimedia) }
+    val currentTabIdx by viewModel.currentMainTab.collectAsStateWithLifecycle()
+    val currentTab = when (currentTabIdx) {
+        0 -> Screen.Browser
+        1 -> Screen.Radios
+        3 -> Screen.Player
+        4 -> Screen.Settings
+        else -> Screen.Multimedia
+    }
+    val setCurrentTab: (Screen) -> Unit = { screen ->
+        val idx = when (screen) {
+            is Screen.Browser -> 0
+            is Screen.Radios -> 1
+            is Screen.Player -> 3
+            is Screen.Settings -> 4
+            else -> 2 // Multimedia
+        }
+        viewModel.setCurrentMainTab(idx)
+    }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val mainPrefs = remember { context.getSharedPreferences("ftp_hub_settings", android.content.Context.MODE_PRIVATE) }
+
+    // Multi-click tab cycling states
+    var lastMultimediaClickTime by remember { mutableStateOf(0L) }
+    var lastSettingsClickTime by remember { mutableStateOf(0L) }
+    var multimediaAdvancedByTap1 by remember { mutableStateOf(false) }
+    var settingsAdvancedByTap1 by remember { mutableStateOf(false) }
+
+    // Synchronized top-level states
+    var lockedPodcastPaths by remember {
+        mutableStateOf(getLockedPodcastPaths(context))
+    }
+
+    var lockedPodmarks by remember {
+        mutableStateOf(getLockedPodmarks(context))
+    }
+
+    // Shared triggers
+    var refreshPodmarksByTrigger by remember { mutableStateOf(0) }
+    var refreshRecordingsTrigger by remember { mutableStateOf(0) }
+
+    // Deletion states
+    var recordingFileToDelete by remember { mutableStateOf<java.io.File?>(null) }
+    var recordingDeleteOnSuccess by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var podmarkToDeleteIdx by remember { mutableStateOf<Int?>(null) }
+    var podmarkToDeleteByTriggerContext by remember { mutableStateOf<(() -> Unit)?>(null) }
+
 
     BackHandler {
         (context as? android.app.Activity)?.moveTaskToBack(true)
@@ -185,12 +345,22 @@ fun MainAppScreen(viewModel: FtpViewModel) {
         }
     }
 
+    LaunchedEffect(Unit) {
+        AudioPlayerManager.playbackJumpToPlayerTrigger.collect {
+            val autoJump = mainPrefs.getBoolean("auto_jump_to_player", true)
+            if (autoJump) {
+                setCurrentTab(Screen.Player)
+            }
+        }
+    }
+
     var showResumeDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         if (!AudioPlayerManager.hasPromptedResume) {
             val track = AudioPlayerManager.currentTrack.value
-            if (track != null) {
+            val isPlaying = AudioPlayerManager.isPlaying.value
+            if (track != null && !isPlaying) {
                 showResumeDialog = true
             }
             AudioPlayerManager.hasPromptedResume = true
@@ -227,15 +397,187 @@ fun MainAppScreen(viewModel: FtpViewModel) {
         }
     }
 
+    var showPermissionWarningDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(1500)
+        
+        val hasNotifications = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+        
+        val hasAudioPermission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_MEDIA_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else {
+            androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+
+        if (!hasNotifications || !hasAudioPermission) {
+            showPermissionWarningDialog = true
+        }
+    }
+
+    if (showPermissionWarningDialog) {
+        AlertDialog(
+            onDismissRequest = { showPermissionWarningDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Warning, contentDescription = null, tint = WarningHotPink, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("¡Aviso de Permisos!", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Text(
+                    "Se ha detectado que la aplicación no tiene todos los permisos recomendados habilitados (Control de Notificaciones o Acceso a Almacenamiento).\n\n" +
+                    "Para poder reproducir música en segundo plano, guardar tus grabaciones de radio favoritas de forma portable o escanear archivos multimedia locales, te recomendamos habilitarlos en los ajustes de tu sistema Android.",
+                    color = Color.LightGray,
+                    fontSize = 12.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showPermissionWarningDialog = false
+                        try {
+                            val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                data = android.net.Uri.fromParts("package", context.packageName, null)
+                            }
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Por favor, abre la configuración de la app manualmente.", Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark)
+                ) {
+                    Text("Abrir Ajustes", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPermissionWarningDialog = false }) {
+                    Text("Entendido", color = Color.Gray, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            containerColor = CyberSurface,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
     // Collect App / Playback states
     val isConnected by viewModel.isConnected.collectAsStateWithLifecycle()
     val activeConnection by viewModel.activeConnection.collectAsStateWithLifecycle()
     val isViewingImage by viewModel.isViewingImage.collectAsStateWithLifecycle()
     val viewingImageLocalFile by viewModel.viewingImageLocalFile.collectAsStateWithLifecycle()
     val isImageLoading by viewModel.imageLoadingState.collectAsStateWithLifecycle()
+    val pendingDeletions by viewModel.pendingDeletions.collectAsStateWithLifecycle()
+
+    if (pendingDeletions.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { viewModel.clearPendingDeletions() },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = "Confirmar eliminación",
+                        tint = WarningHotPink,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Sincronización de Biblioteca",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Se han detectado ${pendingDeletions.size} pistas en la base de datos que ya no existen en tus carpetas origen (local o FTP).",
+                        color = Color.White,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "¿Deseas eliminarlas de la biblioteca para mantenerla sincronizada y limpia? Si el servidor FTP estuvo offline, te recomendamos conservarlas.",
+                        color = Color.LightGray,
+                        fontSize = 13.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Pistas obsoletas detectadas (vista previa):",
+                        color = CyberTeal,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    pendingDeletions.take(4).forEach { track ->
+                        Text(
+                            text = "• ${track.title} [${if (track.filePath.startsWith("ftp://")) "FTP" else "Local"}]",
+                            color = Color.Gray,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (pendingDeletions.size > 4) {
+                        Text(
+                            text = "... y ${pendingDeletions.size - 4} más.",
+                            color = Color.Gray,
+                            fontSize = 11.sp,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.confirmPendingDeletions() },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = WarningHotPink,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Eliminar pistas", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { viewModel.clearPendingDeletions() },
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = Color.White
+                    ),
+                    border = BorderStroke(1.dp, Color.Gray),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Conservar todas")
+                }
+            },
+            containerColor = CyberSurface,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
 
     val currentTrack by AudioPlayerManager.currentTrack.collectAsStateWithLifecycle()
     val isPlaying by AudioPlayerManager.isPlaying.collectAsStateWithLifecycle()
+    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val itemToPlaylist by viewModel.itemToPlaylist.collectAsStateWithLifecycle()
+
+    val isBuffering by AudioPlayerManager.isBuffering.collectAsStateWithLifecycle()
+    val isDownloadingActiveTrack by AudioPlayerManager.isDownloadingActiveTrack.collectAsStateWithLifecycle()
+    val prefetchTrackName by AudioPlayerManager.prefetchTrackName.collectAsStateWithLifecycle()
+    val prefetchProgress by AudioPlayerManager.prefetchProgress.collectAsStateWithLifecycle()
+    val bufferingProgress by AudioPlayerManager.bufferingProgress.collectAsStateWithLifecycle()
+    var reconnectionLogs by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(isBuffering) {
+        if (!isBuffering) {
+            reconnectionLogs = emptyList()
+        }
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -250,82 +592,119 @@ fun MainAppScreen(viewModel: FtpViewModel) {
         }
     ) {
         Scaffold(
-            topBar = {
-                TopAppBar(
-                    navigationIcon = {
-                        IconButton(
-                            onClick = { scope.launch { drawerState.open() } },
-                            modifier = Modifier.testTag("menu_drawer_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Menu,
-                                contentDescription = "Menú de Audio y Volumen",
-                                tint = CyberTeal
-                            )
-                        }
-                    },
-                    title = {
-                        PozoBrandLogo()
-                    },
-                    actions = {
-                        if (isConnected) {
-                            IconButton(
-                                onClick = { viewModel.disconnectFtp() },
-                                modifier = Modifier.testTag("disconnect_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ExitToApp,
-                                    contentDescription = "Desconectar",
-                                    tint = WarningHotPink
-                                )
-                            }
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = CyberDark,
-                        titleContentColor = Color.White
-                    )
-                )
-            },
-        bottomBar = {
-            NavigationBar(
-                containerColor = CyberDark,
-                windowInsets = WindowInsets.navigationBars
-            ) {
-                val screens = listOf(Screen.Radios, Screen.Multimedia, Screen.Player, Screen.Settings)
-                screens.forEach { screen ->
-                    val selected = currentTab == screen
-                    NavigationBarItem(
-                        selected = selected,
-                        onClick = { currentTab = screen },
-                        icon = {
-                            BadgedBox(badge = {
-                                if (screen == Screen.Player && currentTrack != null && isPlaying) {
-                                    Badge(containerColor = CyberTeal) {
-                                        Text("LIVE", color = CyberDark, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+            bottomBar = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    val currentTrack by AudioPlayerManager.currentTrack.collectAsStateWithLifecycle()
+                    if (currentTrack != null) {
+                        val currentPos by AudioPlayerManager.currentPosition.collectAsStateWithLifecycle()
+                        val totalDuration by AudioPlayerManager.duration.collectAsStateWithLifecycle()
+                        val progress = if (totalDuration > 0) (currentPos.toFloat() / totalDuration) else 0f
+
+                        LinearProgressIndicator(
+                            progress = progress.coerceIn(0f, 1f),
+                            color = CyberTeal,
+                            trackColor = Color.Transparent,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(3.dp)
+                        )
+                    }
+
+                    NavigationBar(
+                    containerColor = CyberDark,
+                    windowInsets = WindowInsets.navigationBars
+                ) {
+                    val screens = listOf(Screen.Radios, Screen.Multimedia, Screen.Player, Screen.Settings)
+                    screens.forEach { screen ->
+                        val selected = currentTab == screen
+                        NavigationBarItem(
+                            selected = selected,
+                            onClick = {
+                                if (screen == Screen.Multimedia) {
+                                    val now = System.currentTimeMillis()
+                                    if (currentTab != Screen.Multimedia) {
+                                        setCurrentTab(Screen.Multimedia)
+                                        multimediaAdvancedByTap1 = false
+                                    } else {
+                                        val active = viewModel.multimediaSubTab.value
+                                        val isDoubleClick = (now - lastMultimediaClickTime) < 350L && multimediaAdvancedByTap1
+                                        if (isDoubleClick) {
+                                            val prev = (active - 2 + 6) % 6
+                                            viewModel.setMultimediaSubTab(prev)
+                                            multimediaAdvancedByTap1 = false
+                                        } else {
+                                            val next = (active + 1) % 6
+                                            viewModel.setMultimediaSubTab(next)
+                                            multimediaAdvancedByTap1 = true
+                                        }
                                     }
+                                    lastMultimediaClickTime = now
+                                } else if (screen == Screen.Settings) {
+                                    val now = System.currentTimeMillis()
+                                    if (currentTab != Screen.Settings) {
+                                        setCurrentTab(Screen.Settings)
+                                        settingsAdvancedByTap1 = false
+                                    } else {
+                                        val active = viewModel.activeSettingsTab.value
+                                        val isDoubleClick = (now - lastSettingsClickTime) < 350L && settingsAdvancedByTap1
+                                        if (isDoubleClick) {
+                                            val prev = (active - 2 + 10) % 10
+                                            viewModel.setActiveSettingsTab(prev)
+                                            settingsAdvancedByTap1 = false
+                                        } else {
+                                            val next = (active + 1) % 10
+                                            viewModel.setActiveSettingsTab(next)
+                                            settingsAdvancedByTap1 = true
+                                        }
+                                    }
+                                    lastSettingsClickTime = now
+                                } else {
+                                    setCurrentTab(screen)
                                 }
-                            }) {
-                                Icon(
-                                    imageVector = screen.icon,
-                                    contentDescription = screen.title,
-                                    tint = if (selected) CyberTeal else Color.Gray
+                            },
+                            icon = {
+                                BadgedBox(badge = {
+                                    if (screen == Screen.Player && currentTrack != null && isPlaying) {
+                                        Badge(containerColor = CyberTeal) {
+                                            Text("LIVE", color = CyberDark, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    } else if (screen == Screen.Multimedia && isConnected) {
+                                        val activeConn by viewModel.activeConnection.collectAsStateWithLifecycle()
+                                        val lastConnectedHost by viewModel.lastConnectedHost.collectAsStateWithLifecycle()
+                                        val connectedHost = lastConnectedHost ?: activeConn?.host ?: ""
+                                        val isLocalIp = activeConn != null && isConnected && connectedHost == activeConn?.localIp
+                                        
+                                        val badgeColor = if (isLocalIp) {
+                                            Color(0xFF00E676) // Green for local / home IP
+                                        } else {
+                                            Color(0xFF00B0FF) // Blue for global / 5G / remote connection
+                                        }
+                                        Badge(containerColor = badgeColor) {
+                                            Text("ON", color = CyberDark, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }) {
+                                    Icon(
+                                        imageVector = screen.getStyledIcon(),
+                                        contentDescription = screen.title,
+                                        tint = if (selected) CyberTeal else Color.Gray
+                                    )
+                                }
+                            },
+                            label = {
+                                Text(
+                                    text = screen.title,
+                                    color = if (selected) CyberTeal else Color.Gray,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 11.sp
                                 )
-                            }
-                        },
-                        label = {
-                            Text(
-                                text = screen.title,
-                                color = if (selected) CyberTeal else Color.Gray,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = 11.sp
-                            )
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            indicatorColor = CyberGrey
-                        ),
-                        modifier = Modifier.testTag("tab_${screen.title.lowercase()}")
-                    )
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                indicatorColor = CyberGrey
+                            ),
+                            modifier = Modifier.testTag("tab_${screen.title.lowercase()}")
+                        )
+                    }
                 }
             }
         },
@@ -350,14 +729,50 @@ fun MainAppScreen(viewModel: FtpViewModel) {
                 label = "ScreenTransition"
             ) { tab ->
                 when (tab) {
-                    is Screen.Browser -> BrowserTabSchema(viewModel, onNavigateToPlayer = { currentTab = Screen.Player })
+                    is Screen.Browser -> BrowserTabSchema(viewModel, onNavigateToPlayer = {
+                        val autoJump = mainPrefs.getBoolean("auto_jump_to_player", true)
+                        if (autoJump) {
+                            setCurrentTab(Screen.Player)
+                        } else {
+                            try {
+                                val trackName = AudioPlayerManager.currentTrack.value?.fileName ?: ""
+                                if (trackName.isNotEmpty()) {
+                                    Toast.makeText(context, "▶️ Reproduciendo: $trackName", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    })
                     is Screen.Radios -> RadiosOnlineDetailsScreen(viewModel)
-                    is Screen.Multimedia -> MultimediaTabSchema(viewModel, onNavigateToPlayer = { currentTab = Screen.Player })
+                    is Screen.Multimedia -> MultimediaTabSchema(viewModel, onNavigateToPlayer = {
+                        val autoJump = mainPrefs.getBoolean("auto_jump_to_player", true)
+                        if (autoJump) {
+                            setCurrentTab(Screen.Player)
+                        } else {
+                            try {
+                                val trackName = AudioPlayerManager.currentTrack.value?.fileName ?: ""
+                                if (trackName.isNotEmpty()) {
+                                    Toast.makeText(context, "▶️ Reproduciendo: $trackName", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    })
                     is Screen.Player -> PlayerTabSchema(viewModel, onNavigateToRecent = {
                         viewModel.setMultimediaSubTab(3) // 3 = RECIENTES
-                        currentTab = Screen.Multimedia
+                        setCurrentTab(Screen.Multimedia)
                     })
-                    is Screen.Settings -> AppSettingsAndEqualizerScreen(viewModel, onNavigateToPlayer = { currentTab = Screen.Player })
+                    is Screen.Settings -> AppSettingsAndEqualizerScreen(viewModel, onNavigateToPlayer = {
+                        val autoJump = mainPrefs.getBoolean("auto_jump_to_player", true)
+                        if (autoJump) {
+                            setCurrentTab(Screen.Player)
+                        } else {
+                            try {
+                                val trackName = AudioPlayerManager.currentTrack.value?.fileName ?: ""
+                                if (trackName.isNotEmpty()) {
+                                    Toast.makeText(context, "▶️ Reproduciendo: $trackName", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    })
                 }
             }
 
@@ -371,6 +786,254 @@ fun MainAppScreen(viewModel: FtpViewModel) {
                     onDismiss = { viewModel.closeImageViewer() }
                 )
             }
+
+            // Highly polished dialog window popup when launching an FTP track while an online radio station is currently playing (to avoid confusion while the radio keeps sounding and FTP buffers)
+            val isBufferingRadioShow = isDownloadingActiveTrack && currentTrack != null && currentTrack?.playlistId == -2
+            if (isBufferingRadioShow) {
+                androidx.compose.ui.window.Dialog(onDismissRequest = { /* Modal: do not dismiss on background tap */ }) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                        border = BorderStroke(1.5.dp, CyberTeal),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Radio,
+                                    contentDescription = "Sintonizando Radio",
+                                    tint = CyberTeal,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Sintonizando FTP",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            Text(
+                                text = prefetchTrackName.ifEmpty { "Cargando pista remota..." },
+                                color = CyberLight,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(20.dp))
+
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.size(80.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    color = CyberTeal,
+                                    trackColor = CyberCharcoal,
+                                    strokeWidth = 6.dp,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudDownload,
+                                        contentDescription = "Progreso FTP",
+                                        tint = CyberTeal,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Text(
+                                        text = "${(prefetchProgress * 100).toInt().coerceIn(0, 100)}%",
+                                        color = CyberTeal,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            Text(
+                                text = "Descargando pista desde el servidor FTP al búfer temporal local.\nLa radio sigue sintonizada y sonará hasta que termine la precarga.",
+                                color = Color.Gray,
+                                fontSize = 10.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                lineHeight = 14.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            OutlinedButton(
+                                onClick = {
+                                    AudioPlayerManager.stopPlayback()
+                                },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = WarningHotPink
+                                ),
+                                border = BorderStroke(1.dp, WarningHotPink.copy(alpha = 0.5f)),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth(0.6f),
+                                contentPadding = PaddingValues(vertical = 10.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = "Cancelar", modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Cancelar", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Global modal Add File to Playlist Dialog
+            if (itemToPlaylist != null) {
+                Dialog(onDismissRequest = { viewModel.setItemToPlaylist(null) }) {
+                    var newPlaylistName by remember { mutableStateOf("") }
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = "Añadir a lista de reproducción 🎶",
+                                fontWeight = FontWeight.Bold,
+                                color = CyberTeal,
+                                fontSize = 15.sp
+                            )
+                            
+                            Text(
+                                text = "Pista: ${itemToPlaylist?.name}",
+                                color = Color.LightGray,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            HorizontalDivider(color = CyberGrey.copy(alpha = 0.5f))
+
+                            // Section to create a new playlist on the fly
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    text = "Crear nueva lista y añadir:",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedTextField(
+                                        value = newPlaylistName,
+                                        onValueChange = { newPlaylistName = it },
+                                        placeholder = { Text("Nombre de playlist...", fontSize = 11.sp, color = Color.Gray) },
+                                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = Color.White),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = CyberTeal,
+                                            unfocusedBorderColor = CyberCharcoal
+                                        ),
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1
+                                    )
+                                    Button(
+                                        onClick = {
+                                            if (newPlaylistName.isNotBlank()) {
+                                                viewModel.createPlaylistAndAddFile(newPlaylistName.trim(), itemToPlaylist!!)
+                                                Toast.makeText(context, "Lista '${newPlaylistName}' creada y canción añadida!", Toast.LENGTH_SHORT).show()
+                                                viewModel.setItemToPlaylist(null)
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark),
+                                        enabled = newPlaylistName.isNotBlank(),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp)
+                                    ) {
+                                        Text("CREAR", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+
+                            HorizontalDivider(color = CyberGrey.copy(alpha = 0.5f))
+
+                            // List details of existing playlists
+                            Text(
+                                text = "O añadir a una existente:",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+
+                            if (playlists.isEmpty()) {
+                                Text(
+                                    text = "No tienes listas creadas todavía. Escribe arriba para crear una.",
+                                    color = Color.Gray,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                )
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier.heightIn(max = 180.dp)
+                                ) {
+                                    items(playlists) { list ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    itemToPlaylist?.let {
+                                                        viewModel.addFileToPlaylist(list.id, it)
+                                                        Toast.makeText(context, "Añadido a ${list.name}", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                    viewModel.setItemToPlaylist(null)
+                                                }
+                                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            PlaylistIcon(modifier = Modifier.size(20.dp), tint = SoftTeal)
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Text(list.name, color = Color.White, fontSize = 13.sp)
+                                        }
+                                        HorizontalDivider(color = CyberGrey.copy(alpha = 0.2f))
+                                    }
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                TextButton(onClick = { viewModel.setItemToPlaylist(null) }) {
+                                    Text("CERRAR", color = Color.Gray, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -378,11 +1041,72 @@ fun MainAppScreen(viewModel: FtpViewModel) {
 
 // ---------------------- TAB 1: BROWSER VIEW ----------------------
 @Composable
+fun FtpConnectionStatusButton(viewModel: FtpViewModel) {
+    val isConnected by viewModel.isConnected.collectAsStateWithLifecycle()
+    val activeConn by viewModel.activeConnection.collectAsStateWithLifecycle()
+    val savedConnections by viewModel.savedConnections.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    
+    val lastConnectedHost by viewModel.lastConnectedHost.collectAsStateWithLifecycle()
+    val connectedHost = lastConnectedHost ?: activeConn?.host ?: ""
+    val isLocalIp = activeConn != null && isConnected && connectedHost == activeConn?.localIp
+    
+    val containerColor = if (isConnected) Color(0xFF1E3A1E) else Color(0xFF3B1E1E)
+    val contentColor = if (isConnected) Color(0xFF81C784) else Color(0xFFE57373)
+    val borderStroke = BorderStroke(1.dp, if (isConnected) Color(0xFF4CAF50) else Color(0xFFEF5350))
+    val text = if (isConnected) {
+        if (isLocalIp) "IP LOCAL 🏠 CONECTADO" else "5G/WAN 🌐 CONECTADO"
+    } else {
+        "DESCONECTADO 🔴"
+    }
+    
+    Surface(
+        modifier = Modifier
+            .clickable {
+                if (isConnected) {
+                    viewModel.disconnectFtp()
+                    Toast.makeText(context, "FTP Desconectado", Toast.LENGTH_SHORT).show()
+                } else {
+                    val lastConn = savedConnections.firstOrNull()
+                    if (lastConn != null) {
+                        viewModel.connectFtp(lastConn)
+                        Toast.makeText(context, "Conectando a ${lastConn.name}...", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Añade un perfil FTP abajo para conectar", Toast.LENGTH_LONG).show()
+                    }
+                }
+            },
+        color = containerColor,
+        shape = RoundedCornerShape(20.dp),
+        border = borderStroke
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(if (isConnected) Color(0xFF4CAF50) else Color(0xFFEF5350), shape = CircleShape)
+            )
+            Text(
+                text = text,
+                color = contentColor,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
 fun BrowserTabSchema(viewModel: FtpViewModel, onNavigateToPlayer: () -> Unit) {
     val isConnected by viewModel.isConnected.collectAsStateWithLifecycle()
+    val isViewingExplorer by viewModel.isViewingExplorer.collectAsStateWithLifecycle()
 
-    AnimatedContent(targetState = isConnected, label = "ConnectedTransition") { connected ->
-        if (!connected) {
+    AnimatedContent(targetState = isConnected && isViewingExplorer, label = "ConnectedTransition") { showExplorer ->
+        if (!showExplorer) {
             FtpProfilesPanel(viewModel)
         } else {
             FtpFileExplorerPanel(viewModel, onNavigateToPlayer)
@@ -395,10 +1119,16 @@ fun FtpProfilesPanel(viewModel: FtpViewModel) {
     val connections by viewModel.savedConnections.collectAsStateWithLifecycle()
     val isConnecting by viewModel.isConnecting.collectAsStateWithLifecycle()
     val connError by viewModel.connectionError.collectAsStateWithLifecycle()
+    val isConnected by viewModel.isConnected.collectAsStateWithLifecycle()
+    val activeConnection by viewModel.activeConnection.collectAsStateWithLifecycle()
 
     var showAddDialog by remember { mutableStateOf(false) }
     var connectionToEdit by remember { mutableStateOf<FtpConnection?>(null) }
     var connectionToDelete by remember { mutableStateOf<FtpConnection?>(null) }
+
+    var isDeleteMode by remember { mutableStateOf(false) }
+    val selectedConnections = remember { mutableStateListOf<Int>() }
+    var showMultiDeleteConfirm by remember { mutableStateOf(false) }
 
     if (connectionToDelete != null) {
         val context = androidx.compose.ui.platform.LocalContext.current
@@ -455,17 +1185,121 @@ fun FtpProfilesPanel(viewModel: FtpViewModel) {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
+                val isConnectedStatus by viewModel.isConnected.collectAsStateWithLifecycle()
+                val activeConnStatus by viewModel.activeConnection.collectAsStateWithLifecycle()
+                val lastConnectedHostStatus by viewModel.lastConnectedHost.collectAsStateWithLifecycle()
+                val connectedHostStatus = lastConnectedHostStatus ?: activeConnStatus?.host ?: ""
+                val isLocalIpStatus = activeConnStatus != null && isConnectedStatus && connectedHostStatus == activeConnStatus?.localIp
+
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isConnectedStatus) Color(0xFF1E3A1E).copy(alpha = 0.6f) else CyberSurface.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .background(
+                                        if (isConnectedStatus) Color(0xFF4CAF50) else Color(0xFFEF5350),
+                                        shape = CircleShape
+                                    )
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = if (isConnectedStatus) "ESTADO: CONECTADO" else "ESTADO: DESCONECTADO",
+                                    color = if (isConnectedStatus) Color(0xFF81C784) else Color(0xFFE57373),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (isConnectedStatus) {
+                                        if (isLocalIpStatus) "IP Local (Red de Hogar) 🏠 [$connectedHostStatus]"
+                                        else "Red Móvil / Internet Global 🌐 [$connectedHostStatus]"
+                                    } else {
+                                        "No hay ninguna sesión FTP activa"
+                                    },
+                                    color = Color.LightGray,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Normal
+                                )
+                            }
+                        }
+                        
+                        if (isConnectedStatus) {
+                            Button(
+                                onClick = { viewModel.disconnectFtp() },
+                                colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink.copy(alpha = 0.8f)),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Desconectar de Servidor FTP 📡", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Servidores FTP",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberTeal
+                        )
+                    }
+                    IconButton(
+                        onClick = { showAddDialog = true }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Añadir FTP",
+                            tint = CyberTeal
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    IconButton(
+                        onClick = {
+                            isDeleteMode = !isDeleteMode
+                            selectedConnections.clear()
+                        }
+                    ) {
+                         Icon(
+                             imageVector = if (isDeleteMode) Icons.Default.Close else Icons.Default.DeleteSweep,
+                             contentDescription = "Modo de Eliminación Masiva",
+                             tint = if (isDeleteMode) WarningHotPink else CyberTeal
+                         )
+                    }
+                }
                 Text(
-                    text = "Servidores FTP de Almacenamiento",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = CyberTeal
-                )
-                Text(
-                    text = "Configura y conéctate a tus cuentas FTP remotas para visualizar fotos y transmitir música sin consumir almacenamiento local.",
+                    text = if (isDeleteMode) "Selecciona uno o varios servidores de la lista marcándolos para eliminarlos definitivamente." else "Configura y conéctate a tus cuentas FTP remotas para visualizar fotos y transmitir música sin consumir almacenamiento local.",
                     fontSize = 13.sp,
                     color = Color.LightGray,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
             }
 
@@ -519,10 +1353,33 @@ fun FtpProfilesPanel(viewModel: FtpViewModel) {
                 }
             } else {
                 items(connections, key = { it.id }) { conn ->
+                    val isSelected = selectedConnections.contains(conn.id)
+                    val isCurrentActiveCard = isConnected && activeConnection?.id == conn.id
+                    val cardBorder = when {
+                        isDeleteMode && isSelected -> BorderStroke(1.5.dp, WarningHotPink)
+                        isCurrentActiveCard -> BorderStroke(1.dp, Color(0xFF4CAF50))
+                        else -> null
+                    }
+                    val cardBgColor = when {
+                        isDeleteMode && isSelected -> WarningHotPink.copy(alpha = 0.15f)
+                        isCurrentActiveCard -> Color(0xFF13251E)
+                        else -> CyberSurface
+                    }
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                        colors = CardDefaults.cardColors(containerColor = cardBgColor),
                         shape = RoundedCornerShape(16.dp),
-                        onClick = { if (!isConnecting) viewModel.connectFtp(conn) },
+                        border = cardBorder,
+                        onClick = {
+                            if (isDeleteMode) {
+                                if (isSelected) selectedConnections.remove(conn.id) else selectedConnections.add(conn.id)
+                            } else {
+                                if (isConnected && activeConnection?.id == conn.id) {
+                                    viewModel.setViewingExplorer(true)
+                                } else {
+                                    if (!isConnecting) viewModel.connectFtp(conn)
+                                }
+                            }
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("connection_card_${conn.name.lowercase()}")
@@ -534,70 +1391,132 @@ fun FtpProfilesPanel(viewModel: FtpViewModel) {
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                if (isDeleteMode) {
+                                    Checkbox(
+                                        checked = isSelected,
+                                        onCheckedChange = { checked ->
+                                            if (checked == true) selectedConnections.add(conn.id) else selectedConnections.remove(conn.id)
+                                        },
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = WarningHotPink,
+                                            uncheckedColor = Color.Gray,
+                                            checkmarkColor = Color.White
+                                        )
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+
+                                // High quality DNS/Storage server icon, always visible to prevent layout shift
+                                val iconBgColor = if (isCurrentActiveCard) Color(0xFF1B3B2B) else CyberGrey
+                                val iconTint = if (isCurrentActiveCard) Color(0xFF00FF66) else CyberTeal
+                                val iconBorderColor = if (isCurrentActiveCard) Color(0xFF00FF66) else Color.Transparent
                                 Box(
                                     modifier = Modifier
-                                        .size(48.dp)
-                                        .background(CyberGrey, CircleShape),
+                                        .size(44.dp)
+                                        .background(iconBgColor, CircleShape)
+                                        .border(1.dp, iconBorderColor, CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Storage,
-                                        contentDescription = null,
-                                        tint = CyberTeal
+                                        imageVector = Icons.Default.Dns,
+                                        contentDescription = "Servidor FTP",
+                                        tint = iconTint,
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
                                 Spacer(modifier = Modifier.width(16.dp))
-                                Column {
+
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = conn.name,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color.White,
-                                        fontSize = 16.sp
+                                        color = if (isCurrentActiveCard) Color(0xFF00FF66) else Color.White,
+                                        fontSize = 15.sp,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                     )
                                     Text(
                                         text = "${conn.host}:${conn.port}",
-                                        color = Color.Gray,
-                                        fontSize = 13.sp
+                                        color = Color.LightGray,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                     )
-                                    Text(
-                                        text = "Usuario: ${conn.username}",
-                                        color = CyberTeal.copy(alpha = 0.8f),
-                                        fontSize = 11.sp
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Person,
+                                            contentDescription = null,
+                                            tint = Color.Gray,
+                                            modifier = Modifier.size(10.dp)
+                                        )
+                                        Text(
+                                            text = conn.username,
+                                            color = Color.Gray,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    if (!conn.homeSsid.isNullOrBlank()) {
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Wifi,
+                                                contentDescription = null,
+                                                tint = Color(0xFF00E676),
+                                                modifier = Modifier.size(10.dp)
+                                            )
+                                            Text(
+                                                text = "${conn.homeSsid} • ${conn.localIp}",
+                                                color = Color(0xFF00E676).copy(alpha = 0.8f),
+                                                fontSize = 9.sp,
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
                                 }
                             }
 
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(
-                                    onClick = { viewModel.duplicateConnection(conn) },
-                                    modifier = Modifier.testTag("duplicate_connection_${conn.id}")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.ContentCopy,
-                                        contentDescription = "Duplicar Conexión",
-                                        tint = CyberTeal
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { connectionToEdit = conn },
-                                    modifier = Modifier.testTag("edit_connection_${conn.id}")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Edit,
-                                        contentDescription = "Editar Conexión",
-                                        tint = CyberTeal
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { connectionToDelete = conn },
-                                    modifier = Modifier.testTag("delete_connection_${conn.id}")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.DeleteOutline,
-                                        contentDescription = "Borrar Conexión",
-                                        tint = WarningHotPink
-                                    )
+                            if (!isDeleteMode) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = { viewModel.duplicateConnection(conn) },
+                                        modifier = Modifier.testTag("duplicate_connection_${conn.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ContentCopy,
+                                            contentDescription = "Duplicar Conexión",
+                                            tint = CyberTeal
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { connectionToEdit = conn },
+                                        modifier = Modifier.testTag("edit_connection_${conn.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Edit,
+                                            contentDescription = "Editar Conexión",
+                                            tint = CyberTeal
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { connectionToDelete = conn },
+                                        modifier = Modifier.testTag("delete_connection_${conn.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteOutline,
+                                            contentDescription = "Borrar Conexión",
+                                            tint = WarningHotPink
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -643,23 +1562,78 @@ fun FtpProfilesPanel(viewModel: FtpViewModel) {
             }
         }
 
-        // Add Connection Floating Button
-        FloatingActionButton(
-            onClick = { showAddDialog = true },
-            containerColor = CyberTeal,
-            contentColor = CyberDark,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(24.dp)
-                .testTag("add_connection_fab")
-        ) {
-            Icon(Icons.Default.Add, contentDescription = "Añadir FTP")
+        if (isDeleteMode && selectedConnections.isNotEmpty()) {
+            val context = androidx.compose.ui.platform.LocalContext.current
+
+            if (showMultiDeleteConfirm) {
+                AlertDialog(
+                    onDismissRequest = { showMultiDeleteConfirm = false },
+                    title = {
+                        Text(
+                            text = "Eliminación masiva",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = "¿Deseas eliminar permanentemente los ${selectedConnections.size} servidores seleccionados?",
+                            color = Color.LightGray,
+                            fontSize = 14.sp
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                val toDelete = connections.filter { selectedConnections.contains(it.id) }
+                                toDelete.forEach { viewModel.removeConnection(it) }
+                                selectedConnections.clear()
+                                isDeleteMode = false
+                                showMultiDeleteConfirm = false
+                                Toast.makeText(context, "Servidores eliminados correctamente", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Eliminar", fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = { showMultiDeleteConfirm = false }
+                        ) {
+                            Text("Cancelar", color = CyberTeal, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    containerColor = CyberDark,
+                    textContentColor = Color.White,
+                    titleContentColor = Color.White
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 96.dp, start = 24.dp, end = 24.dp)
+            ) {
+                Button(
+                    onClick = { showMultiDeleteConfirm = true },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = Color.White)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("BORRAR SELECCIONADOS (${selectedConnections.size})", fontWeight = FontWeight.Bold)
+                }
+            }
         }
 
         if (showAddDialog) {
             AddConnectionDialog(
-                onSave = { name, host, port, user, pass, musicPath ->
-                    viewModel.createConnection(name, host, port, user, pass, musicPath)
+                onSave = { name, host, port, user, pass, musicPath, ssid, localIp ->
+                    viewModel.createConnection(name, host, port, user, pass, musicPath, ssid, localIp)
                     showAddDialog = false
                 },
                 onDismiss = { showAddDialog = false }
@@ -667,21 +1641,31 @@ fun FtpProfilesPanel(viewModel: FtpViewModel) {
         }
 
         if (connectionToEdit != null) {
+            val context = androidx.compose.ui.platform.LocalContext.current
             AddConnectionDialog(
                 connection = connectionToEdit,
-                onSave = { name, host, port, user, pass, musicPath ->
+                onSave = { name, host, port, user, pass, musicPath, ssid, localIp ->
                     val updated = connectionToEdit!!.copy(
                         name = name,
                         host = host,
                         port = port,
                         username = user,
                         password = pass,
-                        musicFolder = musicPath
+                        musicFolder = musicPath,
+                        homeSsid = ssid,
+                        localIp = localIp
                     )
                     viewModel.updateConnection(updated)
                     connectionToEdit = null
                 },
-                onDismiss = { connectionToEdit = null }
+                onDismiss = { connectionToEdit = null },
+                onDelete = {
+                    connectionToEdit?.let { conn ->
+                        viewModel.removeConnection(conn)
+                        Toast.makeText(context, "Servidor eliminado", Toast.LENGTH_SHORT).show()
+                    }
+                    connectionToEdit = null
+                }
             )
         }
     }
@@ -690,32 +1674,40 @@ fun FtpProfilesPanel(viewModel: FtpViewModel) {
 @Composable
 fun AddConnectionDialog(
     connection: FtpConnection? = null,
-    onSave: (String, String, Int, String, String, String) -> Unit,
-    onDismiss: () -> Unit
+    onSave: (String, String, Int, String, String, String, String, String) -> Unit,
+    onDismiss: () -> Unit,
+    onDelete: (() -> Unit)? = null
 ) {
-    var name by remember { mutableStateOf(connection?.name ?: "") }
-    var host by remember { mutableStateOf(connection?.host ?: "") }
-    var port by remember { mutableStateOf(connection?.port?.toString() ?: "21") }
-    var username by remember { mutableStateOf(connection?.username ?: "anonymous") }
-    var password by remember { mutableStateOf(connection?.password ?: "") }
-    var musicFolder by remember { mutableStateOf(connection?.musicFolder ?: "/") }
+    var name by remember(connection) { mutableStateOf(connection?.name ?: "") }
+    var host by remember(connection) { mutableStateOf(connection?.host ?: "") }
+    var port by remember(connection) { mutableStateOf(connection?.port?.toString() ?: "21") }
+    var username by remember(connection) { mutableStateOf(connection?.username ?: "anonymous") }
+    var password by remember(connection) { mutableStateOf(connection?.password ?: "") }
+    var musicFolder by remember(connection) { mutableStateOf(connection?.musicFolder ?: "/") }
+    var homeSsid by remember(connection) { mutableStateOf(connection?.homeSsid ?: "") }
+    var localIp by remember(connection) { mutableStateOf(connection?.localIp ?: "") }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             colors = CardDefaults.cardColors(containerColor = CyberSurface),
             shape = RoundedCornerShape(20.dp),
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxWidth(0.95f)
+                .fillMaxHeight(0.85f)
                 .padding(8.dp)
         ) {
             Column(
                 modifier = Modifier
                     .padding(20.dp)
-                    .fillMaxWidth(),
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
-                    text = "Añadir Nuevo Servidor FTP",
+                    text = if (connection == null) "Añadir Nuevo Servidor FTP" else "Editar Servidor FTP",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = CyberTeal
@@ -737,7 +1729,7 @@ fun AddConnectionDialog(
                 OutlinedTextField(
                     value = host,
                     onValueChange = { host = it },
-                    label = { Text("Servidor IP / Hostname") },
+                    label = { Text("Servidor IP Pública / Hostname") },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = CyberTeal,
                         focusedLabelColor = CyberTeal
@@ -801,26 +1793,110 @@ fun AddConnectionDialog(
                         .testTag("input_connection_music_folder")
                 )
 
+                HorizontalDivider(color = CyberCharcoal)
+
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "📡 Conectividad Inteligente (Opcional)",
+                        color = CyberTeal,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        text = "Configura el SSID (nombre) del Wi-Fi de tu casa y la dirección IP Local. El sistema detectará automáticamente cuando estés en casa para usar la IP local, logrando descargas instantáneas en la red interna. Fuera de casa, usará el Host/Dirección principal pública automáticamente.",
+                        color = Color.LightGray,
+                        fontSize = 10.5.sp,
+                        lineHeight = 14.sp
+                    )
+                }
+
+                OutlinedTextField(
+                    value = homeSsid,
+                    onValueChange = { homeSsid = it },
+                    label = { Text("Nombre de tu SSID Wi-Fi") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = CyberTeal,
+                        focusedLabelColor = CyberTeal
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_connection_home_ssid")
+                )
+
+                OutlinedTextField(
+                    value = localIp,
+                    onValueChange = { localIp = it },
+                    label = { Text("IP de Servidor Local (ej: 192.168.1.50)") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = CyberTeal,
+                        focusedLabelColor = CyberTeal
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_connection_local_ip")
+                )
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("CANCELAR", color = Color.Gray)
+                    if (connection != null && onDelete != null) {
+                        var showConfirmDelete by remember { mutableStateOf(false) }
+                        if (showConfirmDelete) {
+                            AlertDialog(
+                                onDismissRequest = { showConfirmDelete = false },
+                                title = { Text("¿Eliminar servidor?", color = Color.White, fontWeight = FontWeight.Bold) },
+                                text = { Text("¿Estás seguro de que deseas eliminar este servidor FTP? Esta acción no se puede deshacer.", color = Color.LightGray) },
+                                confirmButton = {
+                                    Button(
+                                        onClick = {
+                                            showConfirmDelete = false
+                                            onDelete()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White)
+                                    ) {
+                                        Text("Eliminar", fontWeight = FontWeight.Bold)
+                                    }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { showConfirmDelete = false }) {
+                                        Text("Cancelar", color = CyberTeal)
+                                    }
+                                },
+                                containerColor = CyberDark
+                            )
+                        }
+
+                        Button(
+                            onClick = { showConfirmDelete = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.testTag("delete_connection_from_dialog")
+                        ) {
+                            Text("ELIMINAR", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.width(1.dp))
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = {
-                            if (name.isNotEmpty() && host.isNotEmpty()) {
-                                val p = port.toIntOrNull() ?: 21
-                                onSave(name, host, p, username, password, musicFolder)
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark),
-                        modifier = Modifier.testTag("submit_connection_button")
-                    ) {
-                        Text("GUARDAR Y CONECTAR")
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onDismiss) {
+                            Text("CANCELAR", color = Color.Gray)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (name.isNotEmpty() && host.isNotEmpty()) {
+                                    val p = port.toIntOrNull() ?: 21
+                                    onSave(name, host, p, username, password, musicFolder, homeSsid, localIp)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark),
+                            modifier = Modifier.testTag("submit_connection_button")
+                        ) {
+                            Text(if (connection == null) "AÑADIR Y CONECTAR" else "GUARDAR Y CONECTAR")
+                        }
                     }
                 }
             }
@@ -838,11 +1914,27 @@ fun FtpFileExplorerPanel(viewModel: FtpViewModel, onNavigateToPlayer: () -> Unit
     val clipboardPath by viewModel.clipboardPath.collectAsStateWithLifecycle()
     val isMoveAction by viewModel.isMoveAction.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val isRecursiveScanning by viewModel.isRecursiveScanning.collectAsStateWithLifecycle()
+    
+    val scannedLocalTracks by viewModel.scannedLocalTracks.collectAsStateWithLifecycle()
+    val trackMap = remember(scannedLocalTracks, activeConn) {
+        val connId = activeConn?.id ?: 0
+        scannedLocalTracks.filter { it.filePath.startsWith("ftp://$connId") }
+            .associateBy { it.filePath }
+    }
 
     var showCreateDirDialog by remember { mutableStateOf(false) }
     var folderNameInput by remember { mutableStateOf("") }
     var itemToDelete by remember { mutableStateOf<FtpFileItem?>(null) }
-    var itemToPlaylist by remember { mutableStateOf<FtpFileItem?>(null) }
+    val itemToPlaylist by viewModel.itemToPlaylist.collectAsStateWithLifecycle()
+
+    BackHandler(enabled = true) {
+        if (currentPath != "/") {
+            viewModel.navigateUp()
+        } else {
+            viewModel.setViewingExplorer(false)
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Active Connection Header Title
@@ -856,31 +1948,51 @@ fun FtpFileExplorerPanel(viewModel: FtpViewModel, onNavigateToPlayer: () -> Unit
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column {
-                    Text(
-                        text = activeConn?.name ?: "Servidor FTP",
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        fontSize = 14.sp
-                    )
-                    Text(
-                        text = activeConn?.host ?: "",
-                        fontSize = 11.sp,
-                        color = Color.Gray
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { viewModel.setViewingExplorer(false) },
+                        modifier = Modifier.padding(end = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Volver",
+                            tint = CyberTeal
+                        )
+                    }
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = activeConn?.name ?: "Servidor FTP",
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                fontSize = 14.sp
+                            )
+                            FtpConnectionStatusButton(viewModel)
+                        }
+                        val isConnected by viewModel.isConnected.collectAsStateWithLifecycle()
+                        val lastConnectedHost by viewModel.lastConnectedHost.collectAsStateWithLifecycle()
+                        val connectedHost = lastConnectedHost ?: activeConn?.host ?: ""
+                        val currentActiveConn = activeConn
+                        val connectionTypeLabel = remember(isConnected, connectedHost, currentActiveConn) {
+                            if (!isConnected) {
+                                "Desconectado 🔴"
+                            } else if (currentActiveConn != null && connectedHost == currentActiveConn.localIp) {
+                                "Conexión: IP Local 🏠 ($connectedHost)"
+                            } else if (connectedHost.isNotEmpty()) {
+                                "Conexión: 5G / Internet 🌐 ($connectedHost)"
+                            } else {
+                                "Conectado"
+                            }
+                        }
+                        Text(
+                            text = connectionTypeLabel,
+                            fontSize = 11.sp,
+                            color = Color.Gray
+                        )
+                    }
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    activeConn?.let { conn ->
-                        if (conn.musicFolder.isNotBlank()) {
-                            IconButton(
-                                onClick = { viewModel.navigateToPath(conn.musicFolder) },
-                                modifier = Modifier.testTag("direct_music_folder_shortcut")
-                            ) {
-                                Icon(Icons.Default.MusicNote, contentDescription = "Carpeta de Música", tint = SoftTeal)
-                            }
-                        }
-                    }
                     IconButton(
                         onClick = { showCreateDirDialog = true },
                         modifier = Modifier.testTag("create_folder_button")
@@ -975,27 +2087,118 @@ fun FtpFileExplorerPanel(viewModel: FtpViewModel, onNavigateToPlayer: () -> Unit
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    val hasAudioOrDir = filesList.any { it.isAudio || it.isDirectory }
+                    if (hasAudioOrDir) {
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface.copy(alpha = 0.8f)),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, Color(0xFF00E676).copy(alpha = 0.25f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                                    .testTag("play_entire_ftp_folder_button")
+                                    .clickable {
+                                        viewModel.playFolderRecursively(context, activeConn?.id ?: 0, onNavigateToPlayer)
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .background(Color(0xFF00E676).copy(alpha = 0.15f), CircleShape)
+                                                .size(32.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.PlayArrow,
+                                                contentDescription = "Reproducir carpeta entera",
+                                                tint = Color(0xFF00E676),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Text(
+                                            "REPRODUCIR CARPETA ENTERA",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Text("💿", fontSize = 14.sp)
+                                }
+                            }
+                        }
+                    }
+
                     items(filesList) { item ->
+                        val matchingTrack = if (item.isAudio) {
+                            trackMap["ftp://${activeConn?.id ?: 0}${item.path}"]
+                        } else null
+
                         FtpFileRow(
                             item = item,
+                            viewModel = viewModel,
+                            matchingTrack = matchingTrack,
                             onFolderClick = { viewModel.navigateIntoDirectory(item.name) },
                             onAudioClick = {
+                                val audioItems = filesList.filter { it.isAudio }.map { audioFile ->
+                                    PlaylistItem(
+                                        playlistId = 0,
+                                        fileName = audioFile.name,
+                                        filePath = "ftp://${activeConn?.id ?: 0}${audioFile.path}",
+                                        fileSize = audioFile.size
+                                    )
+                                }
                                 val playlistItem = PlaylistItem(
                                     playlistId = 0,
                                     fileName = item.name,
-                                    filePath = item.path,
+                                    filePath = "ftp://${activeConn?.id ?: 0}${item.path}",
                                     fileSize = item.size
                                 )
-                                AudioPlayerManager.playTrack(context, playlistItem)
+                                AudioPlayerManager.playTrack(context, playlistItem, audioItems)
                                 onNavigateToPlayer()
                             },
                             onImageClick = { viewModel.openImageViewer(item) },
                             onDeleteClick = { itemToDelete = item },
                             onCopyToClipboard = { viewModel.setClipboardElement(item, isCut = false) },
                             onCutToClipboard = { viewModel.setClipboardElement(item, isCut = true) },
-                            onAddToPlaylistClick = { itemToPlaylist = item },
+                            onAddToPlaylistClick = { viewModel.setItemToPlaylist(item) },
                             onDownloadClick = { viewModel.downloadFileToDevice(context, item) }
                         )
+                    }
+                }
+            }
+
+            if (isRecursiveScanning) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.75f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                        border = BorderStroke(1.dp, CyberTeal),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            CircularProgressIndicator(color = CyberTeal)
+                            Text(
+                                text = "Buscando música en todas las subcarpetas...",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }
@@ -1075,69 +2278,6 @@ fun FtpFileExplorerPanel(viewModel: FtpViewModel, onNavigateToPlayer: () -> Unit
         )
     }
 
-    // Modal Add File to Playlist Dialog
-    if (itemToPlaylist != null && playlists.isNotEmpty()) {
-        Dialog(onDismissRequest = { itemToPlaylist = null }) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = CyberSurface),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.padding(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text("Selecciona una lista de reproducción", fontWeight = FontWeight.Bold, color = CyberTeal, fontSize = 16.sp)
-                    LazyColumn(
-                        modifier = Modifier.heightIn(max = 240.dp)
-                    ) {
-                        items(playlists) { list ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        itemToPlaylist?.let {
-                                            viewModel.addFileToPlaylist(list.id, it)
-                                            Toast
-                                                .makeText(context, "Añadido a ${list.name}", Toast.LENGTH_SHORT)
-                                                .show()
-                                        }
-                                        itemToPlaylist = null
-                                    }
-                                    .padding(vertical = 12.dp, horizontal = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.PlaylistPlay, contentDescription = null, tint = SoftTeal)
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text(list.name, color = Color.White, fontSize = 14.sp)
-                            }
-                            HorizontalDivider(color = CyberGrey)
-                        }
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(onClick = { itemToPlaylist = null }) {
-                            Text("CERRAR", color = Color.Gray)
-                        }
-                    }
-                }
-            }
-        }
-    } else if (itemToPlaylist != null && playlists.isEmpty()) {
-        AlertDialog(
-            onDismissRequest = { itemToPlaylist = null },
-            title = { Text("No hay Playlists creadas", color = Color.White) },
-            text = { Text("Por favor dirígete a la sección 'Multimedia' para crear tu primera lista de reproducción antes de añadir pistas.", color = Color.LightGray) },
-            confirmButton = {
-                Button(onClick = { itemToPlaylist = null }, colors = ButtonDefaults.buttonColors(containerColor = CyberTeal)) {
-                    Text("ENTENDIDO", color = CyberDark)
-                }
-            },
-            containerColor = CyberSurface
-        )
-    }
 }
 
 @Composable
@@ -1188,8 +2328,61 @@ fun BreadcrumbsView(path: String, onBreadcrumbClick: (Int) -> Unit) {
 }
 
 @Composable
+fun FtpFolderIcon(
+    folderPath: String,
+    viewModel: FtpViewModel,
+    modifier: Modifier = Modifier,
+    tint: Color = CyberTeal
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var localLogoFile by remember(folderPath) { mutableStateOf<java.io.File?>(null) }
+    var isChecking by remember(folderPath) { mutableStateOf(false) }
+
+    LaunchedEffect(folderPath) {
+        val cached = viewModel.getCachedFolderLogo(context, folderPath)
+        if (cached != null) {
+            localLogoFile = cached
+        } else {
+            localLogoFile = null
+            isChecking = true
+            val fetched = viewModel.fetchAndCacheFolderLogo(context, folderPath)
+            if (fetched != null) {
+                localLogoFile = fetched
+            }
+            isChecking = false
+        }
+    }
+
+    if (localLogoFile != null) {
+        AsyncImage(
+            model = localLogoFile,
+            contentDescription = "Logo de carpeta",
+            contentScale = ContentScale.Crop,
+            modifier = modifier
+                .clip(RoundedCornerShape(6.dp))
+                .border(1.dp, CyberTeal.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+        )
+    } else {
+        Box(
+            modifier = modifier,
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Folder,
+                contentDescription = null,
+                modifier = Modifier.size(28.dp),
+                tint = if (isChecking) tint.copy(alpha = 0.6f) else tint
+            )
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
 fun FtpFileRow(
     item: FtpFileItem,
+    viewModel: FtpViewModel,
+    matchingTrack: com.example.data.model.LocalMusicTrack?,
     onFolderClick: () -> Unit,
     onAudioClick: () -> Unit,
     onImageClick: () -> Unit,
@@ -1220,13 +2413,20 @@ fun FtpFileRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable {
-                when {
-                    item.isDirectory -> onFolderClick()
-                    item.isAudio -> onAudioClick()
-                    item.isImage -> onImageClick()
+            .combinedClickable(
+                onClick = {
+                    when {
+                        item.isDirectory -> onFolderClick()
+                        item.isAudio -> onAudioClick()
+                        item.isImage -> onImageClick()
+                    }
+                },
+                onLongClick = {
+                    if (item.isAudio) {
+                        onAddToPlaylistClick()
+                    }
                 }
-            }
+            )
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
@@ -1235,27 +2435,71 @@ fun FtpFileRow(
             modifier = Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = iconColor,
-                modifier = Modifier.size(28.dp)
-            )
+            if (item.isDirectory) {
+                FtpFolderIcon(
+                    folderPath = item.path,
+                    viewModel = viewModel,
+                    modifier = Modifier.size(28.dp),
+                    tint = iconColor
+                )
+            } else if (item.isAudio) {
+                val activeConnState by viewModel.activeConnection.collectAsStateWithLifecycle()
+                val currentConnId = activeConnState?.id ?: 0
+                val ftpPath = "ftp://$currentConnId${item.path}"
+                TrackCoverImage(
+                    filePath = ftpPath,
+                    modifier = Modifier.size(28.dp),
+                    backgroundColor = CyberGrey,
+                    placeholderIcon = Icons.Default.MusicNote,
+                    iconSize = 16.dp
+                )
+            } else {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = iconColor,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
             Spacer(modifier = Modifier.width(16.dp))
-            Column {
-                Text(
-                    text = item.name,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = if (item.isDirectory) "Carpeta" else formatFileSize(item.size),
-                    color = Color.Gray,
-                    fontSize = 12.sp
-                )
+            if (item.isAudio) {
+                val displayName = matchingTrack?.title ?: item.name.substringBeforeLast(".")
+                val displayDur = matchingTrack?.durationText ?: "03:00"
+                val displayArtist = matchingTrack?.artist ?: ""
+                Column {
+                    Text(
+                        text = displayName,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    val artistPrefix = if (displayArtist.isNotEmpty() && !displayArtist.startsWith("Servidor FTP")) "$displayArtist • " else ""
+                    Text(
+                        text = "$artistPrefix${formatFileSize(item.size)} • $displayDur",
+                        color = Color.Gray,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            } else {
+                Column {
+                    Text(
+                        text = item.name,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = if (item.isDirectory) "Carpeta" else formatFileSize(item.size),
+                        color = Color.Gray,
+                        fontSize = 12.sp
+                    )
+                }
             }
         }
 
@@ -1301,7 +2545,7 @@ fun FtpFileRow(
                             isExpanded = false
                             onAddToPlaylistClick()
                         },
-                        leadingIcon = { Icon(Icons.Default.PlaylistAdd, contentDescription = null, tint = SoftTeal) }
+                        leadingIcon = { PlaylistAddIcon(tint = SoftTeal) }
                     )
                 }
                 DropdownMenuItem(
@@ -1329,57 +2573,261 @@ fun formatFileSize(bytes: Long): String {
     }
 }
 
+@Composable
+fun CassetteIcon(modifier: Modifier = Modifier, tint: Color = Color.White) {
+    val style = com.example.ui.theme.AppThemeManager.iconStyle
+    if (style == "neutral_none") {
+        androidx.compose.foundation.layout.Spacer(modifier = modifier.size(0.dp))
+        return
+    }
+    androidx.compose.foundation.Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        // Cassette main shell (outer body)
+        drawRoundRect(
+            color = tint,
+            size = androidx.compose.ui.geometry.Size(w, h),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.12f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = w * 0.08f)
+        )
+        // Tape window label box inside
+        drawRoundRect(
+            color = tint.copy(alpha = 0.25f),
+            topLeft = androidx.compose.ui.geometry.Offset(w * 0.15f, h * 0.15f),
+            size = androidx.compose.ui.geometry.Size(w * 0.7f, h * 0.45f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.05f)
+        )
+        // Center holes (left & right reel wheels)
+        drawCircle(
+            color = tint,
+            radius = w * 0.07f,
+            center = androidx.compose.ui.geometry.Offset(w * 0.35f, h * 0.38f)
+        )
+        drawCircle(
+            color = tint,
+            radius = w * 0.07f,
+            center = androidx.compose.ui.geometry.Offset(w * 0.65f, h * 0.38f)
+        )
+        
+        // Let's add little lines inside the holes to look like reels
+        drawLine(
+            color = tint,
+            start = androidx.compose.ui.geometry.Offset(w * 0.35f, h * 0.31f),
+            end = androidx.compose.ui.geometry.Offset(w * 0.35f, h * 0.45f),
+            strokeWidth = w * 0.02f
+        )
+        drawLine(
+            color = tint,
+            start = androidx.compose.ui.geometry.Offset(w * 0.65f, h * 0.31f),
+            end = androidx.compose.ui.geometry.Offset(w * 0.65f, h * 0.45f),
+            strokeWidth = w * 0.02f
+        )
+        
+        // Trapezoid bottom shield
+        val trapPath = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.25f, h * 0.72f)
+            lineTo(w * 0.75f, h * 0.72f)
+            lineTo(w * 0.66f, h * 0.94f)
+            lineTo(w * 0.34f, h * 0.94f)
+            close()
+        }
+        drawPath(path = trapPath, color = tint)
+    }
+}
+
+@Composable
+fun PlaylistIcon(modifier: Modifier = Modifier, tint: Color) {
+    val style = com.example.ui.theme.AppThemeManager.iconStyle
+    if (style == "neutral_none") {
+        androidx.compose.foundation.layout.Spacer(modifier = modifier.size(0.dp))
+        return
+    }
+    val icon = when (style) {
+        "retro_color" -> Icons.Default.QueueMusic
+        "modern_color" -> Icons.Default.FeaturedPlayList
+        else -> Icons.Default.PlaylistPlay
+    }
+    Icon(icon, contentDescription = null, modifier = modifier, tint = tint)
+}
+
+@Composable
+fun PlaylistAddIcon(modifier: Modifier = Modifier, tint: Color) {
+    val style = com.example.ui.theme.AppThemeManager.iconStyle
+    if (style == "neutral_none") {
+        androidx.compose.foundation.layout.Spacer(modifier = modifier.size(0.dp))
+        return
+    }
+    PlaylistIcon(modifier, tint)
+}
+
+@Composable
+fun getTabIconAndColor(tabIndex: Int, isSelected: Boolean): Pair<@Composable (Modifier) -> Unit, Color> {
+    val style = com.example.ui.theme.AppThemeManager.iconStyle
+    val activeColor = when (tabIndex) {
+        0 -> if (style == "neutral" || style == "neutral_none") CyberTeal else Color(0xFF00ADB5) // Local (Cyan/Blue)
+        1 -> if (style == "neutral" || style == "neutral_none") CyberTeal else Color(0xFF00E5FF) // FTP (Light Cyan)
+        2 -> if (style == "neutral" || style == "neutral_none") CyberTeal else Color(0xFFE23E57) // Favoritos (Hot Pink)
+        3 -> if (style == "neutral" || style == "neutral_none") CyberTeal else Color(0xFFFFB300) // Recientes (Yellow/Amber)
+        4 -> if (style == "neutral" || style == "neutral_none") CyberTeal else Color(0xFFD0BCFF) // Playlists (Lila)
+        5 -> if (style == "neutral" || style == "neutral_none") CyberTeal else Color(0xFFFF6B6B) // Grabaciones (Coral Red)
+        else -> CyberTeal
+    }
+    
+    val tint = if (isSelected) activeColor else activeColor.copy(alpha = 0.45f)
+    
+    val iconContent: @Composable (Modifier) -> Unit = { modifier ->
+        if (style == "neutral_none") {
+            Box(Modifier.size(0.dp))
+        } else {
+            when (tabIndex) {
+                0 -> {
+                    val icon = if (style == "retro_color") Icons.Default.Save else Icons.Default.Folder
+                    Icon(icon, contentDescription = null, modifier = modifier, tint = tint)
+                }
+                1 -> {
+                    val icon = if (style == "retro_color") Icons.Default.Dns else Icons.Default.Cloud
+                    Icon(icon, contentDescription = null, modifier = modifier, tint = tint)
+                }
+                2 -> {
+                    val icon = if (style == "retro_color") Icons.Default.Star else Icons.Default.Favorite
+                    Icon(icon, contentDescription = null, modifier = modifier, tint = tint)
+                }
+                3 -> {
+                    val icon = if (style == "retro_color") Icons.Default.Schedule else Icons.Default.History
+                    Icon(icon, contentDescription = null, modifier = modifier, tint = tint)
+                }
+                4 -> {
+                    PlaylistIcon(modifier = modifier, tint = tint)
+                }
+                5 -> {
+                    if (style == "retro_color") {
+                        CassetteIcon(modifier = modifier, tint = tint)
+                    } else {
+                        Icon(Icons.Default.Mic, contentDescription = null, modifier = modifier, tint = tint)
+                    }
+                }
+                else -> {
+                    Icon(Icons.Default.Folder, contentDescription = null, modifier = modifier, tint = tint)
+                }
+            }
+        }
+    }
+    
+    return Pair(iconContent, tint)
+}
+
 // ---------------------- TAB 2: MULTIMEDIA PANEL (LOCAL & FTP LIBRARIES, FAVS, RECENT, PLAYLISTS) ----------------------
 @Composable
 fun MultimediaTabSchema(viewModel: FtpViewModel, onNavigateToPlayer: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
     val activeSubTab by viewModel.multimediaSubTab.collectAsStateWithLifecycle()
+    val isConnectedByModel by viewModel.isConnected.collectAsStateWithLifecycle()
+    val activeConnByModel by viewModel.activeConnection.collectAsStateWithLifecycle()
+    val lastConnectedHost by viewModel.lastConnectedHost.collectAsStateWithLifecycle()
+
+    val connectedHost = lastConnectedHost ?: activeConnByModel?.host ?: ""
+    val isLocalIp = activeConnByModel != null && isConnectedByModel && connectedHost == activeConnByModel?.localIp
+
+    val audioSourceText = if (isConnectedByModel) {
+        if (isLocalIp) "Servidor FTP (Local) 🏠" else "Servidor FTP (Remoto) 🌐"
+    } else {
+        "Reconectar FTP 🔄"
+    }
+
+    val signalColor = if (isConnectedByModel) {
+        if (isLocalIp) Color(0xFF00E676) // Green for local / house IP
+        else Color(0xFF00B0FF) // Blue for global / 5G / remote connection
+    } else {
+        Color(0xFFEF5350) // Red for disconnected
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        // Micro status row for FTP Connection
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(CyberDark)
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Spacer(modifier = Modifier.weight(1f))
+            
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .background(if (!isConnectedByModel) Color(0xFF2A1515) else Color.Transparent, RoundedCornerShape(4.dp))
+                    .clickable {
+                        scope.launch(Dispatchers.IO) {
+                            val ok = com.example.data.repository.FtpClientManager.ensureConnected()
+                            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                                if (ok) {
+                                    Toast.makeText(context, "🔄 ¡FTP re-sintonizado con éxito!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "⚠️ Error de sintonización FTP. Inténtalo de nuevo.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    }
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .background(signalColor, shape = CircleShape)
+                )
+                Text(
+                    text = audioSourceText,
+                    color = signalColor,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
         ScrollableTabRow(
             selectedTabIndex = activeSubTab,
             containerColor = CyberDark,
             contentColor = CyberTeal,
             edgePadding = 16.dp
         ) {
-            Tab(
-                selected = activeSubTab == 0,
-                onClick = { viewModel.setMultimediaSubTab(0) },
-                text = { Text("LOCAL", fontWeight = FontWeight.Bold, fontSize = 11.sp) }
-            )
-            Tab(
-                selected = activeSubTab == 1,
-                onClick = { viewModel.setMultimediaSubTab(1) },
-                text = { Text("FTP", fontWeight = FontWeight.Bold, fontSize = 11.sp) }
-            )
-            Tab(
-                selected = activeSubTab == 2,
-                onClick = { viewModel.setMultimediaSubTab(2) },
-                text = { Text("FAVORITOS", fontWeight = FontWeight.Bold, fontSize = 11.sp) }
-            )
-            Tab(
-                selected = activeSubTab == 3,
-                onClick = { viewModel.setMultimediaSubTab(3) },
-                text = { Text("RECIENTES", fontWeight = FontWeight.Bold, fontSize = 11.sp) }
-            )
-            Tab(
-                selected = activeSubTab == 4,
-                onClick = { viewModel.setMultimediaSubTab(4) },
-                text = { Text("MIS PLAYLISTS", fontWeight = FontWeight.Bold, fontSize = 11.sp) }
-            )
-            Tab(
-                selected = activeSubTab == 5,
-                onClick = { viewModel.setMultimediaSubTab(5) },
-                text = { Text("GRABACIONES", fontWeight = FontWeight.Bold, fontSize = 11.sp) }
-            )
+            val tabs = listOf("LOCAL", "FTP", "FAVORITOS", "RECIENTES", "MIS PLAYLISTS", "GRABACIONES")
+            tabs.forEachIndexed { index, label ->
+                val (iconContent, tint) = getTabIconAndColor(index, activeSubTab == index)
+                Tab(
+                    selected = activeSubTab == index,
+                    onClick = { viewModel.setMultimediaSubTab(index) },
+                    modifier = Modifier.height(42.dp)
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Top,
+                        modifier = Modifier.padding(top = 2.dp)
+                    ) {
+                        iconContent(Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.height(1.dp))
+                        Text(
+                            text = label, 
+                            fontWeight = FontWeight.Bold, 
+                            fontSize = 10.sp, 
+                            color = tint,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
         }
 
         Box(modifier = Modifier.weight(1f)) {
             when (activeSubTab) {
-                0 -> LocalLibraryDetailsScreen(viewModel, showOnlyFtp = false)
-                1 -> LocalLibraryDetailsScreen(viewModel, showOnlyFtp = true)
-                2 -> FavoritesDetailsScreen(viewModel)
-                3 -> RecentTracksDetailsScreen(viewModel)
-                4 -> PlaylistsDetailsScreen(viewModel)
+                0 -> LocalLibraryDetailsScreen(viewModel, showOnlyFtp = false, onNavigateToPlayer = onNavigateToPlayer)
+                1 -> LocalLibraryDetailsScreen(viewModel, showOnlyFtp = true, onNavigateToPlayer = onNavigateToPlayer)
+                2 -> FavoritesDetailsScreen(viewModel, onNavigateToPlayer = onNavigateToPlayer)
+                3 -> RecentTracksDetailsScreen(viewModel, onNavigateToPlayer = onNavigateToPlayer)
+                4 -> PlaylistsDetailsScreen(viewModel, onNavigateToPlayer = onNavigateToPlayer)
                 5 -> RecordingsLibraryDetailsScreen(viewModel, onNavigateToPlayer)
             }
         }
@@ -1390,27 +2838,79 @@ fun MultimediaTabSchema(viewModel: FtpViewModel, onNavigateToPlayer: () -> Unit)
 fun RecordingsLibraryDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    val prefs = remember { context.getSharedPreferences("app_buffer_configs", android.content.Context.MODE_PRIVATE) }
+    val prefs = remember { context.getSharedPreferences("ftp_hub_settings", android.content.Context.MODE_PRIVATE) }
     var recordingPath by remember { mutableStateOf(prefs.getString("recording_destination_dir", "") ?: "") }
+    val scannedTracks by viewModel.scannedLocalTracks.collectAsStateWithLifecycle()
     
+    // Reactive triggers for local lists
+    var refreshRecordingsTrigger by remember { mutableStateOf(0) }
+    var refreshPodmarksByTrigger by remember { mutableStateOf(0) }
+    
+    // Lock states
+    var lockedPodcastPaths by remember {
+        mutableStateOf(getLockedPodcastPaths(context))
+    }
+    var lockedPodmarks by remember {
+        mutableStateOf(getLockedPodmarks(context))
+    }
+
+    // deletion states for confirmation dialogs
+    var recordingToDelete by remember { mutableStateOf<java.io.File?>(null) }
+    var podmarkToDeleteIndex by remember { mutableStateOf<Int?>(null) }
+
+    // Multi-selection and bulk action states
+    var isSelectionMode by remember { mutableStateOf(false) }
+    var selectedFiles by remember { mutableStateOf(setOf<java.io.File>()) }
+    var selectedPodmarks by remember { mutableStateOf(setOf<com.example.ui.Podmark>()) }
+    
+    // Multi-deletion dialog triggers
+    var showDeleteSelectedRecordingsDialog by remember { mutableStateOf(false) }
+    var showDeleteAllRecordingsDialog by remember { mutableStateOf(false) }
+    var showDeleteSelectedPodmarksDialog by remember { mutableStateOf(false) }
+    var showDeleteAllPodmarksDialog by remember { mutableStateOf(false) }
+
     val targetDir = if (recordingPath.isNotEmpty()) {
         java.io.File(recordingPath)
     } else {
-        java.io.File(context.filesDir, "grabaciones")
+        java.io.File(context.filesDir, "Grabaciones")
     }
     
-    var recordedFilesList by remember {
+    val radioDir = java.io.File(targetDir, "radio")
+    val recortesDir = java.io.File(targetDir, "recortes")
+    
+    var radioFilesList by remember(recordingPath, refreshRecordingsTrigger) {
         mutableStateOf(
-            if (targetDir.exists() && targetDir.isDirectory) {
-                targetDir.listFiles { _, name -> name.endsWith(".mp3") }?.sortedByDescending { it.lastModified() } ?: emptyList()
+            if (radioDir.exists() && radioDir.isDirectory) {
+                radioDir.listFiles { _, name -> name.endsWith(".mp3") }?.sortedByDescending { it.lastModified() } ?: emptyList()
+            } else emptyList()
+        )
+    }
+    
+    var recortesFilesList by remember(recordingPath, refreshRecordingsTrigger) {
+        mutableStateOf(
+            if (recortesDir.exists() && recortesDir.isDirectory) {
+                recortesDir.listFiles { _, name -> name.endsWith(".mp3") || name.endsWith(".mp4") }?.sortedByDescending { it.lastModified() } ?: emptyList()
             } else emptyList()
         )
     }
 
+    var activeSection by remember { mutableStateOf(0) } // 0 = Radio, 1 = Recortes, 2 = Podmarks
     var searchQuery by remember { mutableStateOf("") }
-    
-    val filteredFiles = recordedFilesList.filter {
+    val allPodmarks = remember(refreshPodmarksByTrigger) { getPodmarks(context) }
+
+    val filteredRadioFiles = radioFilesList.filter {
         it.name.contains(searchQuery, ignoreCase = true)
+    }
+
+    val filteredRecortesFiles = recortesFilesList.filter {
+        it.name.contains(searchQuery, ignoreCase = true)
+    }
+
+    val filteredFiles = if (activeSection == 0) filteredRadioFiles else if (activeSection == 1) filteredRecortesFiles else emptyList()
+    val recordedFilesList = if (activeSection == 0) radioFilesList else if (activeSection == 1) recortesFilesList else emptyList()
+
+    val filteredPodmarks = allPodmarks.filter {
+        it.trackName.contains(searchQuery, ignoreCase = true) || it.filePath.contains(searchQuery, ignoreCase = true)
     }
 
     Column(
@@ -1418,176 +2918,626 @@ fun RecordingsLibraryDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: 
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = CyberSurface),
-            shape = RoundedCornerShape(12.dp),
+        // Toggle Buttons (M3 Style) with Adaptive text readability
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 12.dp)
+                .padding(bottom = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            // Tab 1: Radio Recordings
+            Button(
+                onClick = { 
+                    activeSection = 0
+                    searchQuery = ""
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (activeSection == 0) CyberTeal else CyberCharcoal,
+                    contentColor = if (activeSection == 0) CyberDark else CyberLight
+                ),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.weight(1.2f),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+            ) {
+                if (com.example.ui.theme.AppThemeManager.iconStyle == "retro_color") {
+                    CassetteIcon(modifier = Modifier.size(14.dp), tint = if (activeSection == 0) CyberDark else CyberTeal)
+                } else {
+                    Icon(Icons.Default.AudioFile, contentDescription = null, modifier = Modifier.size(14.dp))
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Radio", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+
+            // Tab 2: Recortes / clips
+            Button(
+                onClick = { 
+                    activeSection = 1
+                    searchQuery = ""
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (activeSection == 1) CyberTeal else CyberCharcoal,
+                    contentColor = if (activeSection == 1) CyberDark else CyberLight
+                ),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.weight(1.2f),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+            ) {
+                Icon(Icons.Default.ContentCut, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Recortes", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+
+            // Tab 3: Podmarks
+            Button(
+                onClick = { 
+                    activeSection = 2
+                    searchQuery = ""
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (activeSection == 2) CyberTeal else CyberCharcoal,
+                    contentColor = if (activeSection == 2) CyberDark else CyberLight
+                ),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+            ) {
+                Icon(Icons.Default.Bookmark, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Podmarks", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+
+
+        // inline search dialog and Row
+        var showRecordingsSearchDialog by remember { mutableStateOf(false) }
+
+        if (showRecordingsSearchDialog) {
+            AlertDialog(
+                onDismissRequest = { showRecordingsSearchDialog = false },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = CyberTeal,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (activeSection == 0 || activeSection == 1) "Buscar grabaciones" else "Buscar podmarks",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        TextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Escribe término de búsqueda...", color = Color.Gray, fontSize = 13.sp) },
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = CyberCharcoal,
+                                unfocusedContainerColor = CyberCharcoal,
+                                focusedIndicatorColor = CyberTeal,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { showRecordingsSearchDialog = false },
+                        colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark)
+                    ) {
+                        Text("APLICAR", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            searchQuery = ""
+                            showRecordingsSearchDialog = false
+                        }
+                    ) {
+                        Text("LIMPIAR", color = WarningHotPink)
+                    }
+                },
+                containerColor = CyberSurface
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier.weight(1f, fill = false)
+            ) {
+                TextButton(
+                    onClick = {
+                        isSelectionMode = !isSelectionMode
+                        if (!isSelectionMode) {
+                            selectedFiles = emptySet()
+                            selectedPodmarks = emptySet()
+                        }
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = CyberTeal),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                ) {
                     Icon(
-                        imageVector = Icons.Default.FolderOpen,
+                        imageVector = if (isSelectionMode) Icons.Default.Checklist else Icons.Default.GridOn,
                         contentDescription = null,
-                        tint = CyberTeal,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(3.dp))
                     Text(
-                        text = "Directorio de Grabación Activo:",
-                        color = Color.White,
+                        text = if (isSelectionMode) "Normal" else "Seleccionar",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = targetDir.absolutePath,
-                    color = Color.Gray,
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+
+                IconButton(
+                    onClick = { showRecordingsSearchDialog = true },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Buscar",
+                        tint = CyberTeal,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                if (searchQuery.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .background(CyberTeal.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                            .clickable { searchQuery = "" }
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(searchQuery, color = CyberTeal, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.Close, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(10.dp))
+                        }
+                    }
+                }
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (isSelectionMode) {
+                    // Seleccionar todo
+                    TextButton(
+                        onClick = {
+                            if (activeSection == 0) {
+                                selectedFiles = filteredFiles.toSet()
+                            } else {
+                                selectedPodmarks = filteredPodmarks.toSet()
+                            }
+                        },
+                        colors = ButtonDefaults.textButtonColors(contentColor = SoftTeal),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Text("Todo ✔️", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    // Borrar Seleccionadas
+                    val currentSelCount = if (activeSection == 0 || activeSection == 1) selectedFiles.size else selectedPodmarks.size
+                    Button(
+                        onClick = {
+                            if (currentSelCount > 0) {
+                                if (activeSection == 0 || activeSection == 1) {
+                                    showDeleteSelectedRecordingsDialog = true
+                                } else {
+                                    showDeleteSelectedPodmarksDialog = true
+                                }
+                            }
+                        },
+                        enabled = currentSelCount > 0,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = WarningHotPink.copy(alpha = 0.8f),
+                            contentColor = Color.White,
+                            disabledContainerColor = CyberCharcoal,
+                            disabledContentColor = Color.Gray
+                        ),
+                        shape = RoundedCornerShape(6.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(10.dp))
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text("Borr. ($currentSelCount)", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    // Borrar de uno / todos
+                    Button(
+                        onClick = {
+                            if (activeSection == 0 || activeSection == 1) {
+                                showDeleteAllRecordingsDialog = true
+                            } else {
+                                showDeleteAllPodmarksDialog = true
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink),
+                        shape = RoundedCornerShape(6.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Text("Borrar Todo 🧨", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
 
-        TextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            placeholder = { Text("Buscar grabaciones...", color = Color.Gray, fontSize = 11.sp) },
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = CyberSurface,
-                unfocusedContainerColor = CyberSurface,
-                focusedIndicatorColor = CyberTeal,
-                unfocusedIndicatorColor = Color.Transparent,
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White
-            ),
-            shape = RoundedCornerShape(10.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 12.dp)
-        )
-
-        if (filteredFiles.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.AudioFile,
-                        contentDescription = null,
-                        tint = CyberCharcoal,
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = if (searchQuery.isNotEmpty()) "No se encontraron grabaciones coincidentes" else "No hay grabaciones de emisoras de radio",
-                        color = Color.Gray,
-                        fontSize = 11.sp,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
+        if (activeSection == 0 || activeSection == 1) {
+            if (filteredFiles.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        if (com.example.ui.theme.AppThemeManager.iconStyle == "retro_color" && activeSection == 0) {
+                            CassetteIcon(
+                                modifier = Modifier.size(48.dp),
+                                tint = CyberCharcoal
+                            )
+                        } else {
+                            Icon(
+                                imageVector = if (activeSection == 1) Icons.Default.ContentCut else Icons.Default.AudioFile,
+                                contentDescription = null,
+                                tint = CyberCharcoal,
+                                modifier = Modifier.size(48.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = if (searchQuery.isNotEmpty()) "No se encontraron grabaciones coincidentes" else if (activeSection == 0) "No hay grabaciones de emisoras de radio" else "No hay recortes de audios o clips",
+                            color = CyberLight.copy(alpha = 0.6f),
+                            fontSize = 11.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
                 }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(filteredFiles) { file ->
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = CyberSurface),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(filteredFiles) { file ->
+                        val matchingTrack = scannedTracks.find { it.filePath == file.absolutePath }
+                        val logoUri = matchingTrack?.logoUri
+                        val originalStation = if (matchingTrack?.artist != null && matchingTrack.artist != "Podcast Radio" && matchingTrack.artist != "Desconocido") matchingTrack.artist else "Radio Grabaciones"
+                        val isLocked = lockedPodcastPaths.contains(file.absolutePath)
+
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = file.name,
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "${String.format("%.2f", file.length() / (1024f * 1024f))} MB",
-                                        color = CyberTeal,
-                                        fontSize = 10.sp
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (isSelectionMode) {
+                                        Checkbox(
+                                            checked = selectedFiles.contains(file),
+                                            onCheckedChange = { checked ->
+                                                selectedFiles = if (checked) {
+                                                    selectedFiles + file
+                                                } else {
+                                                    selectedFiles - file
+                                                }
+                                            },
+                                            colors = CheckboxDefaults.colors(
+                                                checkedColor = CyberTeal,
+                                                uncheckedColor = Color.Gray
+                                            ),
+                                            modifier = Modifier.padding(end = 4.dp)
+                                        )
+                                    }
+                                    TrackCoverImage(
+                                        filePath = logoUri ?: file.absolutePath,
+                                        modifier = Modifier.size(40.dp),
+                                        backgroundColor = CyberGrey,
+                                        placeholderIcon = Icons.Default.Radio,
+                                        iconSize = 20.dp
                                     )
                                     Spacer(modifier = Modifier.width(12.dp))
-                                    Text(
-                                        text = "Guardado localmente",
-                                        color = Color.Gray,
-                                        fontSize = 10.sp
-                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        MarqueeText(
+                                            text = file.name,
+                                            color = if (isLocked) Color(0xFFFFD700) else CyberLight,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = "${String.format("%.2f", file.length() / (1024f * 1024f))} MB",
+                                                color = CyberTeal,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Text(
+                                                text = originalStation,
+                                                color = CyberLight.copy(alpha = 0.5f),
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                    }
+                                }
+                                
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = {
+                                            val newSet = if (isLocked) {
+                                                lockedPodcastPaths - file.absolutePath
+                                            } else {
+                                                lockedPodcastPaths + file.absolutePath
+                                            }
+                                            lockedPodcastPaths = newSet
+                                            saveLockedPodcastPaths(context, newSet)
+                                            val msg = if (!isLocked) "Podcast bloqueado para evitar borrado 🔒" else "Podcast desbloqueado 🔓"
+                                            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                                            contentDescription = "Bloquear borrado",
+                                            tint = if (isLocked) Color(0xFFFFD700) else Color.Gray,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            val playItem = com.example.data.model.PlaylistItem(
+                                                id = 0,
+                                                playlistId = -3,
+                                                fileName = file.name,
+                                                filePath = file.absolutePath,
+                                                fileSize = file.length(),
+                                                durationText = "Podcast Rec"
+                                            )
+                                            AudioPlayerManager.playTrack(context, playItem)
+                                            onNavigateToPlayer()
+                                            Toast.makeText(context, "Reproduciendo grabación: ${file.name}", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = "Reproducir",
+                                            tint = CyberTeal,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                    
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    
+                                    IconButton(
+                                        onClick = {
+                                            if (isLocked) {
+                                                android.widget.Toast.makeText(context, "⚠️ Este podcast está bloqueado. Desactiva el candado para poder borrarlo.", android.widget.Toast.LENGTH_LONG).show()
+                                                return@IconButton
+                                            }
+                                            recordingToDelete = file
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Eliminar",
+                                            tint = if (isLocked) Color.Gray.copy(alpha = 0.4f) else WarningHotPink,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
                                 }
                             }
-                            
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(
-                                    onClick = {
-                                        val playItem = com.example.data.model.PlaylistItem(
-                                            id = 0,
-                                            playlistId = -3,
-                                            fileName = file.name,
-                                            filePath = file.absolutePath,
-                                            fileSize = file.length(),
-                                            durationText = "Podcast Rec"
-                                        )
-                                        AudioPlayerManager.playTrack(context, playItem)
-                                        onNavigateToPlayer()
-                                        android.widget.Toast.makeText(context, "Reproduciendo grabación: ${file.name}", android.widget.Toast.LENGTH_SHORT).show()
-                                    },
-                                    modifier = Modifier.size(36.dp)
+                        }
+                    }
+                }
+            }
+        } else if (activeSection == 2) {
+            // Podmarks Section (Optimized to match MP3 Cards perfectly and contain locks!)
+            if (filteredPodmarks.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.BookmarkBorder,
+                            contentDescription = null,
+                            tint = CyberCharcoal,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = if (searchQuery.isNotEmpty()) "No se encontraron podmarks coincidentes" else "No tienes ningún Podmark registrado en grabaciones.",
+                            color = CyberLight.copy(alpha = 0.6f),
+                            fontSize = 11.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    itemsIndexed(filteredPodmarks) { _, pm ->
+                        val podmarkSig = "${pm.filePath}_${pm.positionMs}"
+                        val isPodmarkLocked = lockedPodmarks.contains(podmarkSig)
+                        val matchingTrack = scannedTracks.find { it.filePath == pm.filePath }
+                        val logoUri = matchingTrack?.logoUri
+
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = "Reproducir",
-                                        tint = CyberTeal,
-                                        modifier = Modifier.size(24.dp)
+                                    if (isSelectionMode) {
+                                        Checkbox(
+                                            checked = selectedPodmarks.contains(pm),
+                                            onCheckedChange = { checked ->
+                                                selectedPodmarks = if (checked) {
+                                                    selectedPodmarks + pm
+                                                } else {
+                                                    selectedPodmarks - pm
+                                                }
+                                            },
+                                            colors = CheckboxDefaults.colors(
+                                                checkedColor = CyberTeal,
+                                                uncheckedColor = Color.Gray
+                                            ),
+                                            modifier = Modifier.padding(end = 4.dp)
+                                        )
+                                    }
+                                    TrackCoverImage(
+                                        filePath = logoUri ?: pm.filePath,
+                                        modifier = Modifier.size(40.dp),
+                                        backgroundColor = CyberGrey,
+                                        placeholderIcon = Icons.Default.Bookmark,
+                                        iconSize = 20.dp
                                     )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        MarqueeText(
+                                            text = pm.trackName,
+                                            color = if (isPodmarkLocked) Color(0xFFFFD700) else CyberLight,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = "📍 ${pm.timestampText}",
+                                                color = CyberTeal,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Text(
+                                                text = pm.createdAt,
+                                                color = CyberLight.copy(alpha = 0.5f),
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                    }
                                 }
                                 
-                                Spacer(modifier = Modifier.width(6.dp))
-                                
-                                IconButton(
-                                    onClick = {
-                                        try {
-                                            if (file.delete()) {
-                                                recordedFilesList = if (targetDir.exists() && targetDir.isDirectory) {
-                                                    targetDir.listFiles { _, name -> name.endsWith(".mp3") }?.sortedByDescending { it.lastModified() } ?: emptyList()
-                                                } else {
-                                                    emptyList()
-                                                }
-                                                android.widget.Toast.makeText(context, "Archivo eliminado", android.widget.Toast.LENGTH_SHORT).show()
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = {
+                                            val newSet = if (isPodmarkLocked) {
+                                                lockedPodmarks - podmarkSig
                                             } else {
-                                                android.widget.Toast.makeText(context, "Error al borrar archivo", android.widget.Toast.LENGTH_SHORT).show()
+                                                lockedPodmarks + podmarkSig
                                             }
-                                        } catch (e: Exception) {
-                                            android.widget.Toast.makeText(context, "Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Eliminar",
-                                        tint = WarningHotPink,
-                                        modifier = Modifier.size(20.dp)
-                                    )
+                                            lockedPodmarks = newSet
+                                            saveLockedPodmarks(context, newSet)
+                                            val msg = if (!isPodmarkLocked) "Podmark bloqueado para evitar borrado 🔒" else "Podmark desbloqueado 🔓"
+                                            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isPodmarkLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                                            contentDescription = "Bloquear Podmark",
+                                            tint = if (isPodmarkLocked) Color(0xFFFFD700) else Color.Gray,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            val playItem = com.example.data.model.PlaylistItem(
+                                                id = 0,
+                                                playlistId = -1,
+                                                fileName = pm.trackName,
+                                                filePath = pm.filePath,
+                                                fileSize = 0L,
+                                                durationText = pm.timestampText
+                                            )
+                                            AudioPlayerManager.playTrack(context, playItem, initialPositionMs = pm.positionMs)
+                                            onNavigateToPlayer()
+                                            Toast.makeText(context, "📍 saltando a marca @ ${pm.timestampText}", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = "Reproducir marca",
+                                            tint = CyberTeal,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                    
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    
+                                    IconButton(
+                                        onClick = {
+                                            if (isPodmarkLocked) {
+                                                Toast.makeText(context, "⚠️ Este Podmark está bloqueado. Desactiva el candado para poder borrarlo.", Toast.LENGTH_LONG).show()
+                                                return@IconButton
+                                            }
+                                            val originalIdx = allPodmarks.indexOf(pm)
+                                            if (originalIdx != -1) {
+                                                podmarkToDeleteIndex = originalIdx
+                                            }
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Eliminar",
+                                            tint = if (isPodmarkLocked) Color.Gray.copy(alpha = 0.4f) else WarningHotPink,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1595,44 +3545,590 @@ fun RecordingsLibraryDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: 
                 }
             }
         }
+
+        // CONFIRMATION DIALOGS INSIDE SCREEN
+
+        // 1. MP3 Deletion confirmation Dialog
+        if (recordingToDelete != null) {
+            val file = recordingToDelete!!
+            val associatedPodmarksCount = remember(file) {
+                getPodmarks(context).count { it.filePath == file.absolutePath }
+            }
+            val isTrashEnabled = remember { com.example.data.repository.TrashManager.isTrashEnabled(context) }
+            AlertDialog(
+                onDismissRequest = { recordingToDelete = null },
+                title = { 
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Delete, contentDescription = null, tint = WarningHotPink)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isTrashEnabled) "Enviar a Papelera 🗑️" else "Eliminar Grabación 🗑️",
+                            color = WarningHotPink,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                    }
+                },
+                text = { 
+                    Column {
+                        val operationText = if (isTrashEnabled) {
+                            "¿Deseas enviar la grabación '${file.name}' a la papelera? Podrás restaurarla o eliminarla definitivamente más tarde desde los Ajustes."
+                        } else {
+                            "⚠️ ¡Atención! La papelera está desactivada en Ajustes. ¿Deseas eliminar permanentemente la grabación '${file.name}' del disco? Esta acción no se puede deshacer."
+                        }
+                        Text(
+                            text = operationText,
+                            color = CyberLight,
+                            fontSize = 13.sp
+                        )
+                        
+                        if (associatedPodmarksCount > 0) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = WarningHotPink.copy(alpha = 0.1f)),
+                                border = BorderStroke(1.dp, WarningHotPink.copy(alpha = 0.4f)),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Warning, contentDescription = null, tint = WarningHotPink, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Se eliminará(n) automáticamente $associatedPodmarksCount podmark(s) guardado(s) de esta grabación.",
+                                        color = WarningHotPink,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            try {
+                                if (associatedPodmarksCount > 0) {
+                                    deletePodmarksForFile(context, file.absolutePath)
+                                }
+                                if (com.example.data.repository.TrashManager.trashRecording(context, file)) {
+                                    refreshRecordingsTrigger++
+                                    val msg = if (isTrashEnabled) "Movido a la papelera" else "Grabación eliminada (podmarks borrados)"
+                                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                } else {
+                                    android.widget.Toast.makeText(context, "Error al eliminar grabación", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                android.widget.Toast.makeText(context, "Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                            } finally {
+                                recordingToDelete = null
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White)
+                    ) {
+                        Text("Confirmar", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { recordingToDelete = null }) {
+                        Text("Cancelar", color = CyberLight.copy(alpha = 0.6f))
+                    }
+                },
+                containerColor = CyberSurface
+            )
+        }
+
+        // 2. Podmark Deletion confirmation Dialog
+        if (podmarkToDeleteIndex != null) {
+            val idx = podmarkToDeleteIndex!!
+            val pm = allPodmarks.getOrNull(idx)
+            AlertDialog(
+                onDismissRequest = { podmarkToDeleteIndex = null },
+                title = { 
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Delete, contentDescription = null, tint = WarningHotPink)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Eliminar Podmark 📍", color = WarningHotPink, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                },
+                text = { 
+                    Text(
+                        text = "¿Estás seguro de que quieres eliminar el Podmark guardado para '${pm?.trackName}' en la posición de tiempo ${pm?.timestampText}?",
+                        color = CyberLight,
+                        fontSize = 13.sp
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (deletePodmark(context, idx)) {
+                                refreshPodmarksByTrigger++
+                                android.widget.Toast.makeText(context, "📍 Marca eliminada", android.widget.Toast.LENGTH_SHORT).show()
+                            } else {
+                                android.widget.Toast.makeText(context, "Error al eliminar la marca", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                            podmarkToDeleteIndex = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White)
+                    ) {
+                        Text("Eliminar", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { podmarkToDeleteIndex = null }) {
+                        Text("Cancelar", color = CyberLight.copy(alpha = 0.6f))
+                    }
+                },
+                containerColor = CyberSurface
+            )
+        }
+
+        // 3. Multi-Recording Deletion confirmation Dialog
+        if (showDeleteSelectedRecordingsDialog) {
+            val unlockedSelected = selectedFiles.filter { !lockedPodcastPaths.contains(it.absolutePath) }
+            val lockedCount = selectedFiles.size - unlockedSelected.size
+            val isTrashEnabled = com.example.data.repository.TrashManager.isTrashEnabled(context)
+            AlertDialog(
+                onDismissRequest = { showDeleteSelectedRecordingsDialog = false },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Delete, contentDescription = null, tint = WarningHotPink)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(if (isTrashEnabled) "Enviar Selección a Papelera 🗑️" else "Eliminar Selección ⚠️", color = WarningHotPink, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                },
+                text = {
+                    Column {
+                        Text(
+                            text = if (isTrashEnabled) {
+                                "¿Deseas mover ${unlockedSelected.size} grabación/es seleccionadas a la papelera? Los podmarks pertenecientes a estas grabaciones se borrarán automáticamente."
+                            } else {
+                                "⚠️ ¡Atención! La papelera está desactivada. ¿Deseas eliminar permanentemente del disco ${unlockedSelected.size} grabación/es seleccionadas junto con sus podmarks asociados?"
+                            },
+                            color = CyberLight,
+                            fontSize = 13.sp
+                        )
+                        if (lockedCount > 0) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "🔒 Nota: Se omitirán $lockedCount grabación/es por estar bloqueadas con candado.",
+                                color = Color(0xFFFFD700),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            var successCount = 0
+                            for (file in unlockedSelected) {
+                                val associatedPodmarksCount = getPodmarks(context).count { it.filePath == file.absolutePath }
+                                if (associatedPodmarksCount > 0) {
+                                    deletePodmarksForFile(context, file.absolutePath)
+                                }
+                                if (com.example.data.repository.TrashManager.trashRecording(context, file)) {
+                                    successCount++
+                                }
+                            }
+                            refreshRecordingsTrigger++
+                            selectedFiles = emptySet()
+                            showDeleteSelectedRecordingsDialog = false
+                            android.widget.Toast.makeText(context, "Se procesaron $successCount grabaciones", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White)
+                    ) {
+                        Text("Confirmar", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteSelectedRecordingsDialog = false }) {
+                        Text("Cancelar", color = CyberLight.copy(alpha = 0.6f))
+                    }
+                },
+                containerColor = CyberSurface
+            )
+        }
+
+        // 4. Delete All Recordings ("Borrar todo") confirmation Dialog
+        if (showDeleteAllRecordingsDialog) {
+            val unlockedAll = filteredFiles.filter { !lockedPodcastPaths.contains(it.absolutePath) }
+            val lockedCount = filteredFiles.size - unlockedAll.size
+            val isTrashEnabled = com.example.data.repository.TrashManager.isTrashEnabled(context)
+            AlertDialog(
+                onDismissRequest = { showDeleteAllRecordingsDialog = false },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.DeleteForever, contentDescription = null, tint = WarningHotPink)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("🚨 VACIAR GRABACIONES", color = WarningHotPink, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                },
+                text = {
+                    Column {
+                        Text(
+                            text = if (isTrashEnabled) {
+                                "¿Deseas mover TODAS las grabaciones filtradas (${unlockedAll.size} ítems) a la papelera? También se destruirán sus podmarks asociados."
+                            } else {
+                                "⚠️ ADVERTENCIA CRÍTICA: ¿Deseas eliminar PERMANENTEMENTE TODAS las grabaciones del disco (${unlockedAll.size} ítems) junto a todos sus podmarks? Esta acción es irreversible."
+                            },
+                            color = CyberLight,
+                            fontSize = 13.sp
+                        )
+                        if (lockedCount > 0) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "🔒 Nota: Se respetarán $lockedCount grabación/es protegidas con candado.",
+                                color = Color(0xFFFFD700),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            var successCount = 0
+                            for (file in unlockedAll) {
+                                val associatedPodmarksCount = getPodmarks(context).count { it.filePath == file.absolutePath }
+                                if (associatedPodmarksCount > 0) {
+                                    deletePodmarksForFile(context, file.absolutePath)
+                                }
+                                if (com.example.data.repository.TrashManager.trashRecording(context, file)) {
+                                    successCount++
+                                }
+                            }
+                            refreshRecordingsTrigger++
+                            selectedFiles = emptySet()
+                            showDeleteAllRecordingsDialog = false
+                            android.widget.Toast.makeText(context, "Se enviaron $successCount grabaciones", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White)
+                    ) {
+                        Text("Borrarlos Todos", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteAllRecordingsDialog = false }) {
+                        Text("Cancelar", color = CyberLight.copy(alpha = 0.6f))
+                    }
+                },
+                containerColor = CyberSurface
+            )
+        }
+
+        // 5. Multi-Podmark Deletion confirmation Dialog
+        if (showDeleteSelectedPodmarksDialog) {
+            val unlockedSelected = selectedPodmarks.filter { !lockedPodmarks.contains("${it.filePath}_${it.positionMs}") }
+            val lockedCount = selectedPodmarks.size - unlockedSelected.size
+            AlertDialog(
+                onDismissRequest = { showDeleteSelectedPodmarksDialog = false },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Delete, contentDescription = null, tint = WarningHotPink)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Eliminar Marcas Seleccionadas 📍", color = WarningHotPink, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                },
+                text = {
+                    Column {
+                        Text(
+                            text = "¿Deseas eliminar permanentemente las marcas temporales (${unlockedSelected.size} ítems) seleccionadas?",
+                            color = CyberLight,
+                            fontSize = 13.sp
+                        )
+                        if (lockedCount > 0) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "🔒 Nota: Se ignorarán $lockedCount marca/s por estar bloqueadas.",
+                                color = Color(0xFFFFD700),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            var successCount = 0
+                            for (pm in unlockedSelected) {
+                                val originalIdx = allPodmarks.indexOf(pm)
+                                if (originalIdx != -1) {
+                                    if (deletePodmark(context, originalIdx)) {
+                                        successCount++
+                                    }
+                                }
+                            }
+                            refreshPodmarksByTrigger++
+                            selectedPodmarks = emptySet()
+                            showDeleteSelectedPodmarksDialog = false
+                            android.widget.Toast.makeText(context, "Se borraron $successCount podmarks", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White)
+                    ) {
+                        Text("Confirmar", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteSelectedPodmarksDialog = false }) {
+                        Text("Cancelar", color = CyberLight.copy(alpha = 0.6f))
+                    }
+                },
+                containerColor = CyberSurface
+            )
+        }
+
+        // 6. Delete All Podmarks ("Borrar todo") confirmation Dialog
+        if (showDeleteAllPodmarksDialog) {
+            val unlockedAll = filteredPodmarks.filter { !lockedPodmarks.contains("${it.filePath}_${it.positionMs}") }
+            val lockedCount = filteredPodmarks.size - unlockedAll.size
+            AlertDialog(
+                onDismissRequest = { showDeleteAllPodmarksDialog = false },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.DeleteForever, contentDescription = null, tint = WarningHotPink)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("🚨 VACIAR TODOS LOS PODMARKS", color = WarningHotPink, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                },
+                text = {
+                    Column {
+                        Text(
+                            text = "¿Deseas eliminar de forma definitiva ABSOLUTAMENTE TODOS los podmarks (${unlockedAll.size} marcas) de la lista actual?",
+                            color = CyberLight,
+                            fontSize = 13.sp
+                        )
+                        if (lockedCount > 0) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "🔒 Nota: Se respetarán $lockedCount marca/s protegidas con candado.",
+                                color = Color(0xFFFFD700),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            var successCount = 0
+                            for (pm in unlockedAll) {
+                                val originalIdx = allPodmarks.indexOf(pm)
+                                if (originalIdx != -1) {
+                                    if (deletePodmark(context, originalIdx)) {
+                                        successCount++
+                                    }
+                                }
+                            }
+                            refreshPodmarksByTrigger++
+                            selectedPodmarks = emptySet()
+                            showDeleteAllPodmarksDialog = false
+                            android.widget.Toast.makeText(context, "Se borraron $successCount podmarks", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White)
+                    ) {
+                        Text("Eliminar Todos", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteAllPodmarksDialog = false }) {
+                        Text("Cancelar", color = CyberLight.copy(alpha = 0.6f))
+                    }
+                },
+                containerColor = CyberSurface
+            )
+        }
+    }
+}
+
+private fun getSettingsItemPosition(id: Int): Pair<Int, Int> {
+    return when (id) {
+        10 -> Pair(0, 0) // Ecualizador
+        1 -> Pair(0, 1)  // Radios y rutas
+        5 -> Pair(0, 2)  // Identificar IA
+        
+        2 -> Pair(1, 0)  // Personalizar
+        0 -> Pair(1, 1)  // FTP Conectar
+        3 -> Pair(1, 2)  // Memoria caché
+        9 -> Pair(1, 3)  // Papelera
+        4 -> Pair(1, 4)  // Permisos
+        
+        6 -> Pair(2, 0)  // Manual
+        7 -> Pair(2, 1)  // Novedades
+        8 -> Pair(2, 2)  // Info y versión
+        else -> Pair(0, 0)
+    }
+}
+
+private fun getIdFromPosition(major: Int, sub: Int): Int {
+    return when (major) {
+        0 -> when (sub) {
+            0 -> 10
+            1 -> 1
+            2 -> 5
+            else -> 10
+        }
+        1 -> when (sub) {
+            0 -> 2
+            1 -> 0
+            2 -> 3
+            3 -> 9
+            4 -> 4
+            else -> 2
+        }
+        2 -> when (sub) {
+            0 -> 6
+            1 -> 7
+            2 -> 8
+            else -> 6
+        }
+        else -> 10
     }
 }
 
 @Composable
 fun AppSettingsAndEqualizerScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> Unit) {
-    var activeSubTab by remember { mutableStateOf(1) } // Default to showing Settings tab (1), offering EQ as sibling tab (0)
+    val activeSettingsTab by viewModel.activeSettingsTab.collectAsStateWithLifecycle()
+    val (majorTabIndex, subTabIndex) = getSettingsItemPosition(activeSettingsTab)
 
     Column(modifier = Modifier.fillMaxSize()) {
         TabRow(
-            selectedTabIndex = activeSubTab,
+            selectedTabIndex = majorTabIndex,
             containerColor = CyberDark,
             contentColor = CyberTeal
         ) {
             Tab(
-                selected = activeSubTab == 0,
-                onClick = { activeSubTab = 0 },
-                text = { Text("ECUALIZADOR 🎛️", fontWeight = FontWeight.Bold, fontSize = 11.sp) }
+                selected = majorTabIndex == 0,
+                onClick = { viewModel.setActiveSettingsTab(getIdFromPosition(0, 0)) },
+                text = { Text("AUDIO & CONTENIDO 🎧", fontWeight = FontWeight.Bold, fontSize = 10.sp) }
             )
             Tab(
-                selected = activeSubTab == 1,
-                onClick = { activeSubTab = 1 },
-                text = { Text("AJUSTES ⚙️", fontWeight = FontWeight.Bold, fontSize = 11.sp) }
+                selected = majorTabIndex == 1,
+                onClick = { viewModel.setActiveSettingsTab(getIdFromPosition(1, 0)) },
+                text = { Text("SISTEMA & PANEL ⚙️", fontWeight = FontWeight.Bold, fontSize = 10.sp) }
+            )
+            Tab(
+                selected = majorTabIndex == 2,
+                onClick = { viewModel.setActiveSettingsTab(getIdFromPosition(2, 0)) },
+                text = { Text("AYUDA & INFO ℹ️", fontWeight = FontWeight.Bold, fontSize = 10.sp) }
             )
         }
 
+        ScrollableTabRow(
+            selectedTabIndex = subTabIndex,
+            containerColor = CyberSurface,
+            contentColor = CyberTeal,
+            edgePadding = 8.dp
+        ) {
+            if (majorTabIndex == 0) {
+                Tab(
+                    selected = subTabIndex == 0,
+                    onClick = { viewModel.setActiveSettingsTab(10) },
+                    text = { Text("ECUALIZADOR 🎛️", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                )
+                Tab(
+                    selected = subTabIndex == 1,
+                    onClick = { viewModel.setActiveSettingsTab(1) },
+                    text = { Text("RADIOS & RUTAS 📻", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                )
+                Tab(
+                    selected = subTabIndex == 2,
+                    onClick = { viewModel.setActiveSettingsTab(5) },
+                    text = { Text("IDENTIFICAR IA ✨", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                )
+            } else if (majorTabIndex == 1) {
+                Tab(
+                    selected = subTabIndex == 0,
+                    onClick = { viewModel.setActiveSettingsTab(2) },
+                    text = { Text("PERSONALIZAR 🎨", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                )
+                Tab(
+                    selected = subTabIndex == 1,
+                    onClick = { viewModel.setActiveSettingsTab(0) },
+                    text = { Text("CONECTAR FTP 🔌", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                )
+                Tab(
+                    selected = subTabIndex == 2,
+                    onClick = { viewModel.setActiveSettingsTab(3) },
+                    text = { Text("MEMORIA CACHÉ 🧹", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                )
+                Tab(
+                    selected = subTabIndex == 3,
+                    onClick = { viewModel.setActiveSettingsTab(9) },
+                    text = { Text("PAPELERA 🗑️", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                )
+                Tab(
+                    selected = subTabIndex == 4,
+                    onClick = { viewModel.setActiveSettingsTab(4) },
+                    text = { Text("PERMISOS ☑️", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                )
+            } else {
+                Tab(
+                    selected = subTabIndex == 0,
+                    onClick = { viewModel.setActiveSettingsTab(6) },
+                    text = { Text("MANUAL 📖", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                )
+                Tab(
+                    selected = subTabIndex == 1,
+                    onClick = { viewModel.setActiveSettingsTab(7) },
+                    text = { Text("NOVEDADES 📋", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                )
+                Tab(
+                    selected = subTabIndex == 2,
+                    onClick = { viewModel.setActiveSettingsTab(8) },
+                    text = { Text("INFO Y VERSIÓN ℹ️", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                )
+            }
+        }
+
         Box(modifier = Modifier.weight(1f)) {
-            when (activeSubTab) {
-                0 -> EqualizerDetailsScreen()
-                1 -> AppSettingsDetailsScreen(viewModel, onNavigateToPlayer = onNavigateToPlayer)
+            if (activeSettingsTab == 10) {
+                EqualizerDetailsScreen()
+            } else {
+                AppSettingsDetailsScreen(viewModel, onNavigateToPlayer = onNavigateToPlayer)
             }
         }
     }
 }
 
 @Composable
-fun RecentTracksDetailsScreen(viewModel: FtpViewModel) {
+fun RecentTracksDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> Unit = {}) {
     val context = LocalContext.current
     val recentTracks by viewModel.recentTracks.collectAsStateWithLifecycle()
+    var showConfirmDialog by remember { mutableStateOf(false) }
+
+    if (showConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showConfirmDialog = false },
+            title = { Text("¿Eliminar Recientes?", color = Color.White) },
+            text = { Text("¿Estás seguro de que deseas limpiar todo el historial de reproducción reciente?", color = Color.LightGray) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showConfirmDialog = false
+                        viewModel.clearRecentTracks()
+                        Toast.makeText(context, "✅ Historial de recientes eliminado correctamente", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink)
+                ) {
+                    Text("ELIMINAR", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmDialog = false }) {
+                    Text("CANCELAR", color = Color.Gray)
+                }
+            },
+            containerColor = CyberSurface
+        )
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -1647,12 +4143,12 @@ fun RecentTracksDetailsScreen(viewModel: FtpViewModel) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Últimas 10 Pistas", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = CyberTeal)
+                    Text("Últimas 20 Pistas", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = CyberTeal)
                     Text("Historial reciente de pistas reproducidas localmente o por FTP.", fontSize = 12.sp, color = Color.Gray)
                 }
                 if (recentTracks.isNotEmpty()) {
                     IconButton(
-                        onClick = { viewModel.clearRecentTracks() }
+                        onClick = { showConfirmDialog = true }
                     ) {
                         Icon(
                             imageVector = Icons.Default.Delete,
@@ -1686,7 +4182,22 @@ fun RecentTracksDetailsScreen(viewModel: FtpViewModel) {
             }
         } else {
             items(recentTracks) { recent ->
-                val isLocal = recent.playlistId == -1
+                val isRadio = recent.playlistId == -2
+                val isFtp = recent.filePath.startsWith("ftp://")
+                val isLocal = !isRadio && !isFtp
+
+                val sourceText = when {
+                    isRadio -> "Radio Online • Historial"
+                    isFtp -> "FTP • Historial"
+                    else -> "Móvil • Historial"
+                }
+
+                val sourceIcon = when {
+                    isRadio -> Icons.Default.Radio
+                    isFtp -> Icons.Default.Cloud
+                    else -> Icons.Default.Phonelink
+                }
+
                 Card(
                     colors = CardDefaults.cardColors(containerColor = CyberSurface),
                     shape = RoundedCornerShape(12.dp),
@@ -1701,6 +4212,7 @@ fun RecentTracksDetailsScreen(viewModel: FtpViewModel) {
                             durationText = recent.durationText
                         )
                         AudioPlayerManager.playTrack(context, playlistItem)
+                        onNavigateToPlayer()
                     }
                 ) {
                     Row(
@@ -1711,24 +4223,24 @@ fun RecentTracksDetailsScreen(viewModel: FtpViewModel) {
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = if (isLocal) Icons.Default.Phonelink else Icons.Default.Cloud,
-                                contentDescription = null,
-                                tint = CyberTeal,
-                                modifier = Modifier.size(24.dp)
+                            TrackCoverImage(
+                                filePath = recent.logoUri ?: recent.filePath,
+                                modifier = Modifier.size(40.dp),
+                                backgroundColor = CyberGrey,
+                                placeholderIcon = sourceIcon,
+                                iconSize = 20.dp
                             )
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Column {
-                                Text(
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                MarqueeText(
                                     text = recent.fileName,
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    maxLines = 1
                                 )
                                 Text(
-                                    text = if (isLocal) "Móvil Local • Historial" else "Servidor Remoto • Historial",
+                                    text = sourceText,
                                     color = Color.Gray,
                                     fontSize = 11.sp
                                 )
@@ -1796,9 +4308,79 @@ fun getParentFolderName(path: String): String {
     }
 }
 
+@Composable
+fun MiniPlayerAnchor(onNavigateToPlayer: () -> Unit) {
+    val currentTrack by AudioPlayerManager.currentTrack.collectAsStateWithLifecycle()
+    val isPlaying by AudioPlayerManager.isPlaying.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    if (currentTrack != null) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = CyberCharcoal),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp)
+                .clickable { onNavigateToPlayer() }
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Icon(
+                        imageVector = Icons.Default.MusicNote,
+                        contentDescription = "Pista actual",
+                        tint = CyberTeal,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = currentTrack?.fileName ?: "Sin pista",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        val subText = when {
+                            currentTrack?.playlistId == -2 -> "Radio Online"
+                            currentTrack?.filePath?.startsWith("/") == true -> "Biblioteca Local"
+                            else -> "Servidor FTP"
+                        }
+                        Text(
+                            text = subText,
+                            color = Color.Gray,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = {
+                        AudioPlayerManager.togglePlayPause(context)
+                    },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (isPlaying) "Pausar" else "Reproducir",
+                        tint = CyberTeal,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LocalLibraryDetailsScreen(viewModel: FtpViewModel, showOnlyFtp: Boolean = false) {
+fun LocalLibraryDetailsScreen(viewModel: FtpViewModel, showOnlyFtp: Boolean = false, onNavigateToPlayer: () -> Unit = {}) {
     val context = LocalContext.current
     val scannedTracksAll by viewModel.scannedLocalTracks.collectAsStateWithLifecycle()
     val scannedTracks = remember(scannedTracksAll, showOnlyFtp) {
@@ -1809,8 +4391,14 @@ fun LocalLibraryDetailsScreen(viewModel: FtpViewModel, showOnlyFtp: Boolean = fa
         }
     }
     val isScanning by viewModel.isScanning.collectAsStateWithLifecycle()
+    val unindexedFilesCount by viewModel.unindexedFilesCount.collectAsStateWithLifecycle()
+    val scannedFilesLog by viewModel.scannedFilesLog.collectAsStateWithLifecycle()
     val scanFolders by viewModel.scanFolders.collectAsStateWithLifecycle()
     val savedConnections by viewModel.savedConnections.collectAsStateWithLifecycle()
+    val isDeepScanEnabled by viewModel.isDeepScanEnabled.collectAsStateWithLifecycle()
+    val totalFilesToScan by viewModel.totalFilesToScan.collectAsStateWithLifecycle()
+    val currentScannedCount by viewModel.currentScannedCount.collectAsStateWithLifecycle()
+    var showNoFoldersDialog by remember { mutableStateOf(false) }
 
     val requiredPermission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
         android.Manifest.permission.READ_MEDIA_AUDIO
@@ -1822,40 +4410,52 @@ fun LocalLibraryDetailsScreen(viewModel: FtpViewModel, showOnlyFtp: Boolean = fa
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            viewModel.scanAllFolders(context)
+            viewModel.scanAllFolders(context, showOnlyFtp)
         } else {
             Toast.makeText(context, "Se requiere permiso de lectura para escanear música.", Toast.LENGTH_LONG).show()
         }
     }
 
     val activeSubTab = "library"
+    val mainPrefs = remember { context.getSharedPreferences("ftp_hub_settings", android.content.Context.MODE_PRIVATE) }
+    var isFolderGridView by remember { mutableStateOf(mainPrefs.getBoolean("library_folders_grid_view", false)) }
     var selectedFilter by remember { mutableStateOf("Carpeta") } // "Carpeta", "Todas", "Artista", "Género", "Año"
     val filters = listOf("Carpeta", "Todas", "Artista", "Género", "Año")
     var expandedGroup by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
-
-    // Grabaciones & Buffer Settings Storage
-    val prefs = remember { context.getSharedPreferences("ftp_hub_settings", android.content.Context.MODE_PRIVATE) }
-    var bufferLimitMins by remember { mutableStateOf(prefs.getInt("radio_buffer_limit_minutes", 120)) }
-    var recordingPath by remember { mutableStateOf(prefs.getString("recording_destination_dir", "") ?: "") }
-
-    val recFolderLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri ->
-        if (uri != null) {
-            val resolvedPath = getPathFromDocumentTreeUri(uri)
-            if (resolvedPath != null) {
-                recordingPath = resolvedPath
-                prefs.edit().putString("recording_destination_dir", resolvedPath).apply()
-                Toast.makeText(context, "Destino de grabaciones: $resolvedPath", Toast.LENGTH_LONG).show()
-            } else {
-                val uriStr = uri.toString()
-                recordingPath = uriStr
-                prefs.edit().putString("recording_destination_dir", uriStr).apply()
-                Toast.makeText(context, "URI guardado", Toast.LENGTH_SHORT).show()
+    var showSearchDialog by remember { mutableStateOf(false) }
+    val lastPathKey = if (showOnlyFtp) "last_visited_ftp_path" else "last_visited_local_path"
+    val initialPath = remember(scannedTracks) {
+        try {
+            val jsonStr = mainPrefs.getString(lastPathKey, "[]") ?: "[]"
+            val arr = org.json.JSONArray(jsonStr)
+            val savedList = List(arr.length()) { arr.getString(it) }
+            val commonPrefixVal = findCommonPrefix(scannedTracks.map { it.filePath })
+            val hasValidFolder = scannedTracks.any { track ->
+                val segs = getFolderSegments(track.filePath, commonPrefixVal)
+                segs.take(savedList.size) == savedList
             }
+            if (hasValidFolder) savedList else emptyList()
+        } catch (e: Exception) {
+            emptyList()
         }
     }
+    var currentPath by remember(scannedTracks) { mutableStateOf(initialPath) }
+
+    LaunchedEffect(currentPath) {
+        val jsonStr = org.json.JSONArray(currentPath).toString()
+        mainPrefs.edit().putString(lastPathKey, jsonStr).apply()
+    }
+    
+    BackHandler(enabled = true) {
+        if (currentPath.isNotEmpty()) {
+            currentPath = currentPath.dropLast(1)
+        } else {
+            viewModel.setMultimediaSubTab(2) // Return to FAVORITOS
+        }
+    }
+
+    val commonPrefix = remember(scannedTracks) { findCommonPrefix(scannedTracks.map { it.filePath }) }
 
     val filteredTracks = scannedTracks.filter {
         it.title.contains(searchQuery, ignoreCase = true) ||
@@ -1864,109 +4464,536 @@ fun LocalLibraryDetailsScreen(viewModel: FtpViewModel, showOnlyFtp: Boolean = fa
         it.filePath.contains(searchQuery, ignoreCase = true)
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // Header for Library
-        item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(if (showOnlyFtp) "Biblioteca FTP" else "Biblioteca Local", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = CyberTeal)
-                        Text("${scannedTracks.size} pistas disponibles", fontSize = 12.sp, color = Color.Gray)
-                    }
-
-                    if (isScanning) {
-                        CircularProgressIndicator(color = CyberTeal, modifier = Modifier.size(24.dp))
+    if (showNoFoldersDialog) {
+        AlertDialog(
+            onDismissRequest = { showNoFoldersDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (showOnlyFtp) Icons.Default.Cloud else Icons.Default.Folder,
+                        contentDescription = null,
+                        tint = WarningHotPink,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (showOnlyFtp) "Añadir Carpeta FTP" else "Definir Rutas de Exploración",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                }
+            },
+            text = {
+                Text(
+                    text = if (showOnlyFtp) {
+                        "No tienes ninguna ruta FTP o servidor guardado para el escaneo en la base remota. ¿Deseas ir al panel de conexión FTP para configurarlo ahora?"
                     } else {
-                        Button(
-                            onClick = {
-                                val isGranted = androidx.core.content.ContextCompat.checkSelfPermission(
-                                    context,
-                                    requiredPermission
-                                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                                
-                                if (isGranted) {
-                                    viewModel.scanAllFolders(context)
-                                } else {
-                                    permissionLauncher.launch(requiredPermission)
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.YoutubeSearchedFor, contentDescription = null, modifier = Modifier.size(16.dp), tint = CyberDark)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Escanear", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
+                        "No has definido ninguna ruta local en la configuración para buscar canciones del móvil. ¿Deseas ir a la sección de 'Radios & Rutas' para añadir directorios locales?"
+                    },
+                    color = Color.LightGray,
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showNoFoldersDialog = false
+                        viewModel.setCurrentMainTab(4) // Stream index for Settings
+                        if (showOnlyFtp) {
+                            viewModel.setActiveSettingsTab(0) // Tab FTP Conectar
+                        } else {
+                            viewModel.setActiveSettingsTab(1) // Tab Radios & Rutas
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark)
+                ) {
+                    Text("DEFINIR RUTA", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNoFoldersDialog = false }) {
+                    Text("CANCELAR", color = Color.Gray)
+                }
+            },
+            containerColor = CyberSurface
+        )
+    }
+
+    if (showSearchDialog) {
+        AlertDialog(
+            onDismissRequest = { showSearchDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = CyberTeal,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Buscar y Filtrar Biblioteca",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Buscar título, artista o álbum...", color = Color.Gray, fontSize = 13.sp) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = CyberTeal,
+                            unfocusedBorderColor = CyberCharcoal,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    Text(
+                        text = "Filtrar por categoría:",
+                        color = Color.LightGray,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(filters) { filter ->
+                            FilterChip(
+                                selected = selectedFilter == filter,
+                                onClick = {
+                                    selectedFilter = filter
+                                    expandedGroup = null
+                                },
+                                label = { Text(filter, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    containerColor = CyberCharcoal,
+                                    labelColor = Color.LightGray,
+                                    selectedContainerColor = CyberTeal,
+                                    selectedLabelColor = CyberDark
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    borderColor = Color.Transparent,
+                                    selectedBorderColor = Color.Transparent,
+                                    enabled = true,
+                                    selected = selectedFilter == filter
+                                )
+                            )
                         }
                     }
                 }
-            }
-
-            // Search input field
-            item {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("Buscar por título, artista o álbum...", color = Color.Gray, fontSize = 13.sp) },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = CyberTeal) },
-                    trailingIcon = if (searchQuery.isNotEmpty()) {
-                        {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Close, contentDescription = "Limpiar", tint = Color.Gray)
-                            }
-                        }
-                    } else null,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = CyberTeal,
-                        unfocusedBorderColor = CyberCharcoal,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                )
-            }
-
-            // Filters selector
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showSearchDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark)
                 ) {
-                    filters.forEach { filter ->
-                        FilterChip(
-                            selected = selectedFilter == filter,
-                            onClick = {
-                                selectedFilter = filter
-                                expandedGroup = null
-                            },
-                            label = { Text(filter) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                containerColor = CyberCharcoal,
-                                labelColor = Color.LightGray,
-                                selectedContainerColor = CyberTeal,
-                                selectedLabelColor = CyberDark
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                borderColor = Color.Transparent,
-                                selectedBorderColor = Color.Transparent,
-                                enabled = true,
-                                selected = selectedFilter == filter
-                            )
+                    Text("APLICAR", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        searchQuery = ""
+                        selectedFilter = "Carpeta"
+                        showSearchDialog = false
+                    }
+                ) {
+                    Text("LIMPIAR", color = WarningHotPink)
+                }
+            },
+            containerColor = CyberSurface
+        )
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Upper Fixed Header Bar - Unified Sleek Config Bar (Lupa, View Config, Tracks Count)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            // Track count & scanning progress
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(
+                    imageVector = Icons.Default.MusicNote,
+                    contentDescription = null,
+                    tint = CyberTeal,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = "${scannedTracks.size} pistas",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                if (isScanning) {
+                    CircularProgressIndicator(color = CyberTeal, modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
+                }
+            }
+
+            // Controls config (Folder Grid Toggle & Search button)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (selectedFilter == "Carpeta") {
+                    // List View Toggle Button
+                    IconButton(
+                        onClick = {
+                            isFolderGridView = false
+                            mainPrefs.edit().putBoolean("library_folders_grid_view", false).apply()
+                        },
+                        modifier = Modifier
+                            .size(24.dp)
+                            .background(if (!isFolderGridView) CyberTeal.copy(alpha = 0.2f) else Color.Transparent, CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.List,
+                            contentDescription = "Vista de Lista",
+                            tint = if (!isFolderGridView) CyberTeal else Color.Gray,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+
+                    // Grid View Toggle Button
+                    IconButton(
+                        onClick = {
+                            isFolderGridView = true
+                            mainPrefs.edit().putBoolean("library_folders_grid_view", true).apply()
+                        },
+                        modifier = Modifier
+                            .size(24.dp)
+                            .background(if (isFolderGridView) CyberTeal.copy(alpha = 0.2f) else Color.Transparent, CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Apps,
+                            contentDescription = "Vista de Cuadrícula",
+                            tint = if (isFolderGridView) CyberTeal else Color.Gray,
+                            modifier = Modifier.size(14.dp)
                         )
                     }
                 }
+
+                // Magnolia / Lupa (Search) icon button
+                IconButton(
+                    onClick = { showSearchDialog = true },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Buscar",
+                        tint = CyberTeal,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                if (currentPath.isEmpty()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (unindexedFilesCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .background(WarningHotPink.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                    .border(1.dp, WarningHotPink.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "$unindexedFilesCount NUEVOS ⚡",
+                                    color = WarningHotPink,
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Button(
+                            onClick = {
+                                val hasNoDirectories = if (showOnlyFtp) {
+                                    savedConnections.isEmpty() || scanFolders.none { it.isFtp }
+                                } else {
+                                    scanFolders.none { !it.isFtp }
+                                }
+
+                                if (hasNoDirectories) {
+                                    showNoFoldersDialog = true
+                                } else {
+                                    val isGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+                                        context,
+                                        requiredPermission
+                                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                    
+                                    if (isGranted) {
+                                        viewModel.scanAllFolders(context, showOnlyFtp)
+                                    } else {
+                                        permissionLauncher.launch(requiredPermission)
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = CyberTeal.copy(alpha = 0.15f),
+                                contentColor = CyberTeal
+                            ),
+                            border = BorderStroke(1.dp, CyberTeal.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(6.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier
+                                .height(26.dp)
+                                .testTag("scan_button_text")
+                        ) {
+                            Text(
+                                text = "ESCANEAR",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                    }
+                }
+
+                if (searchQuery.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .background(CyberTeal.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                            .clickable { searchQuery = "" }
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(searchQuery, color = CyberTeal, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.Close, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(10.dp))
+                        }
+                    }
+                }
             }
+        }
+
+        // Top-Level Fixed Clickable Navigation Breadcrumbs Bar
+        if (selectedFilter == "Carpeta" && currentPath.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 2.dp)
+                    .background(CyberCharcoal, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = { currentPath = currentPath.dropLast(1) },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Carpeta Anterior",
+                        tint = CyberTeal,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+                androidx.compose.foundation.lazy.LazyRow(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    item {
+                        Text(
+                            text = "📍 Inicio",
+                            color = if (currentPath.isEmpty()) CyberTeal else Color.LightGray,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .clickable { currentPath = emptyList() }
+                                .padding(vertical = 2.dp, horizontal = 2.dp)
+                        )
+                    }
+
+                    itemsIndexed(currentPath) { index, segment ->
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = Color.Gray,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        val isCurrent = index == currentPath.size - 1
+                        Text(
+                            text = segment,
+                            color = if (isCurrent) CyberTeal else Color.LightGray,
+                            fontSize = 11.sp,
+                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                            modifier = Modifier
+                                .clickable { currentPath = currentPath.take(index + 1) }
+                                .padding(vertical = 2.dp, horizontal = 2.dp)
+                        )
+                    }
+                }
+                TextButton(
+                    onClick = { currentPath = emptyList() },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 1.dp),
+                    modifier = Modifier.height(24.dp)
+                ) {
+                    Text("RAÍZ 📁", color = WarningHotPink, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+
+            // Scanned Files Log (visual feedback so they know it is working)
+            if (isScanning || scannedFilesLog.isNotEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        colors = CardDefaults.cardColors(containerColor = CyberCharcoal),
+                        border = BorderStroke(1.dp, CyberTeal.copy(alpha = 0.4f)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Icon(
+                                        imageVector = Icons.Default.YoutubeSearchedFor,
+                                        contentDescription = null,
+                                        tint = CyberTeal,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    val titleText = if (isScanning) {
+                                        if (totalFilesToScan == 0) "Contando archivos..."
+                                        else "Escaneando: $currentScannedCount / $totalFilesToScan"
+                                    } else {
+                                        "Último reporte de escaneo"
+                                    }
+                                    Text(
+                                        text = titleText,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = CyberTeal
+                                    )
+                                }
+                                if (isScanning) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Button(
+                                            onClick = { viewModel.stopScanning() },
+                                            colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White),
+                                            shape = RoundedCornerShape(6.dp),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                            modifier = Modifier.height(24.dp).padding(end = 8.dp)
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Stop,
+                                                    contentDescription = "Detener",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(3.dp))
+                                                Text("PARAR", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+
+                                        if (totalFilesToScan > 0) {
+                                            val pct = (currentScannedCount * 100) / totalFilesToScan
+                                            Text(
+                                                text = "$pct%",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = CyberTeal,
+                                                modifier = Modifier.padding(horizontal = 4.dp)
+                                            )
+                                        } else {
+                                            CircularProgressIndicator(
+                                                color = CyberTeal,
+                                                modifier = Modifier.size(14.dp),
+                                                strokeWidth = 1.5.dp
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    IconButton(
+                                        onClick = { viewModel.clearScannedFilesLog() },
+                                        modifier = Modifier.size(20.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Limpiar log",
+                                            tint = Color.Gray,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            
+                            Spacer(modifier = Modifier.height(6.dp))
+                            
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 120.dp)
+                                    .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+                                    .padding(8.dp)
+                            ) {
+                                if (scannedFilesLog.isEmpty()) {
+                                    Text(
+                                        "Iniciando escaneo musical...",
+                                        fontSize = 11.sp,
+                                        color = Color.Gray,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                } else {
+                                    val scrollState = rememberScrollState()
+                                    LaunchedEffect(scannedFilesLog.size) {
+                                        scrollState.scrollTo(scrollState.maxValue)
+                                    }
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .verticalScroll(scrollState)
+                                    ) {
+                                        scannedFilesLog.forEach { logLine ->
+                                            Text(
+                                                text = logLine,
+                                                fontSize = 10.sp,
+                                                color = Color.LightGray,
+                                                fontFamily = FontFamily.Monospace,
+                                                modifier = Modifier.padding(vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+
 
             if (filteredTracks.isEmpty()) {
                 item {
@@ -1984,76 +5011,281 @@ fun LocalLibraryDetailsScreen(viewModel: FtpViewModel, showOnlyFtp: Boolean = fa
                 }
             } else {
                 when (selectedFilter) {
-                    "Carpeta" -> {
-                        val grouped = filteredTracks.groupBy { track ->
-                            getParentFolderName(track.filePath)
-                        }
-                        grouped.forEach { (folderName, tracksInFolder) ->
-                            val isFolderExpanded = expandedGroup == folderName
-                            val firstTrack = tracksInFolder.firstOrNull()
+                     "Carpeta" -> {
+                        val directFolders = mutableSetOf<String>()
+                        val filesInCurrentDir = mutableListOf<com.example.data.model.LocalMusicTrack>()
 
-                            item {
-                                Card(
-                                    colors = CardDefaults.cardColors(containerColor = CyberCharcoal),
-                                    shape = RoundedCornerShape(10.dp),
-                                    onClick = {
-                                        expandedGroup = if (isFolderExpanded) null else folderName
-                                    },
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
-                                ) {
+                        for (track in filteredTracks) {
+                            val segs = getFolderSegments(track.filePath, commonPrefix)
+                            if (segs == currentPath) {
+                                filesInCurrentDir.add(track)
+                            } else if (segs.size > currentPath.size && segs.take(currentPath.size) == currentPath) {
+                                directFolders.add(segs[currentPath.size])
+                            }
+                        }
+
+                        val sortedFolders = directFolders.sortedWith(String.CASE_INSENSITIVE_ORDER)
+
+                        // 💿 RECURSIVE PLAY BUTTON FOR THE CURRENT FOLDER AT THE VERY TOP (REMOVED PER USER REQUEST)
+                        val currentPathTracks = filteredTracks.filter { t ->
+                            val segs = getFolderSegments(t.filePath, commonPrefix)
+                            segs.size >= currentPath.size && segs.take(currentPath.size) == currentPath
+                        }
+
+                        if (isFolderGridView) {
+                            val chunkedFolders = sortedFolders.chunked(2)
+                            chunkedFolders.forEach { chunk ->
+                                item {
                                     Row(
-                                        modifier = Modifier.padding(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                            // Displays the album artwork of the first track as compiling folder artwork automatically!
-                                            TrackCoverImage(
-                                                filePath = firstTrack?.filePath,
-                                                modifier = Modifier.size(48.dp),
-                                                backgroundColor = CyberGrey,
-                                                placeholderIcon = Icons.Default.Folder,
-                                                iconSize = 24.dp
-                                            )
+                                        for (i in 0 until 2) {
+                                            val subFolder = chunk.getOrNull(i)
+                                            if (subFolder != null) {
+                                                val folderPathForLogo = if (showOnlyFtp) {
+                                                    val relativePath = (currentPath + subFolder).joinToString("/")
+                                                    if (commonPrefix.isEmpty()) {
+                                                        "/$relativePath"
+                                                    } else {
+                                                        if (commonPrefix.startsWith("ftp://")) {
+                                                            val schemeAndId = commonPrefix.substring(0, 6) + commonPrefix.substring(6).substringBefore('/')
+                                                            val innerPath = commonPrefix.substring(6).substringAfter('/', "")
+                                                            val combinedInner = if (innerPath.isEmpty()) relativePath else "$innerPath/$relativePath"
+                                                            val cleanInner = "/$combinedInner".replace(Regex("/{2,}"), "/")
+                                                            "$schemeAndId$cleanInner"
+                                                        } else {
+                                                            "$commonPrefix/$relativePath".replace(Regex("/{2,}"), "/")
+                                                        }
+                                                    }
+                                                } else {
+                                                    val relativePath = (currentPath + subFolder).joinToString("/")
+                                                    if (commonPrefix.isEmpty()) relativePath else "$commonPrefix/$relativePath"
+                                                }
+
+                                                val targetPath = currentPath + subFolder
+                                                val subTracksRecursive = filteredTracks.filter { t ->
+                                                    val segs = getFolderSegments(t.filePath, commonPrefix)
+                                                    segs.size >= targetPath.size && segs.take(targetPath.size) == targetPath
+                                                }
+
+                                                Card(
+                                                    colors = CardDefaults.cardColors(containerColor = CyberSurface.copy(alpha = 0.8f)),
+                                                    shape = RoundedCornerShape(14.dp),
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .aspectRatio(1f)
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .clickable { currentPath = currentPath + subFolder },
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        FtpFolderIcon(
+                                                            folderPath = folderPathForLogo,
+                                                            viewModel = viewModel,
+                                                            modifier = Modifier.fillMaxSize(),
+                                                            tint = CyberTeal
+                                                        )
+                                                        
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .fillMaxSize()
+                                                                .background(
+                                                                    Brush.verticalGradient(
+                                                                        colors = listOf(
+                                                                            Color.Transparent,
+                                                                            CyberDark.copy(alpha = 0.4f)
+                                                                        )
+                                                                    )
+                                                                )
+                                                        )
+
+                                                        Column(
+                                                            modifier = Modifier
+                                                                .align(Alignment.BottomStart)
+                                                                .padding(8.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = subFolder,
+                                                                color = Color.White,
+                                                                fontSize = 11.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                            Text(
+                                                                text = "${subTracksRecursive.size} pistas",
+                                                                color = Color.Gray,
+                                                                fontSize = 9.sp
+                                                            )
+                                                        }
+
+                                                        // Elegant green CD circular play button inside the Grid Card at top-right
+                                                        IconButton(
+                                                            onClick = {
+                                                                val playlistPlaylists = subTracksRecursive.map {
+                                                                    PlaylistItem(
+                                                                        id = 0,
+                                                                        playlistId = -1,
+                                                                        fileName = it.title,
+                                                                        filePath = it.filePath,
+                                                                        fileSize = it.size
+                                                                    )
+                                                                }
+                                                                if (playlistPlaylists.isNotEmpty()) {
+                                                                    AudioPlayerManager.playTrack(context, playlistPlaylists.first(), playlistPlaylists)
+                                                                    onNavigateToPlayer()
+                                                                }
+                                                            },
+                                                            modifier = Modifier
+                                                                .align(Alignment.TopEnd)
+                                                                .padding(8.dp)
+                                                                .background(Color(0xFF00E676).copy(alpha = 0.25f), CircleShape)
+                                                                .size(28.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.PlayArrow,
+                                                                contentDescription = "Reproducir carpeta entera",
+                                                                tint = Color(0xFF00E676),
+                                                                modifier = Modifier.size(14.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                Spacer(modifier = Modifier.weight(1f))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            sortedFolders.forEach { subFolder ->
+                                item {
+                                    val targetPath = currentPath + subFolder
+                                    val subTracksRecursive = filteredTracks.filter { t ->
+                                        val segs = getFolderSegments(t.filePath, commonPrefix)
+                                        segs.size >= targetPath.size && segs.take(targetPath.size) == targetPath
+                                    }
+
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = CyberSurface.copy(alpha = 0.8f)),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(44.dp)
+                                                    .background(CyberCharcoal, RoundedCornerShape(8.dp))
+                                                    .clickable {
+                                                        currentPath = currentPath + subFolder
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                val folderPathForLogo = if (showOnlyFtp) {
+                                                    val relativePath = (currentPath + subFolder).joinToString("/")
+                                                    if (commonPrefix.isEmpty()) {
+                                                        "/$relativePath"
+                                                    } else {
+                                                        if (commonPrefix.startsWith("ftp://")) {
+                                                            val schemeAndId = commonPrefix.substring(0, 6) + commonPrefix.substring(6).substringBefore('/')
+                                                            val innerPath = commonPrefix.substring(6).substringAfter('/', "")
+                                                            val combinedInner = if (innerPath.isEmpty()) relativePath else "$innerPath/$relativePath"
+                                                            val cleanInner = "/$combinedInner".replace(Regex("/{2,}"), "/")
+                                                            "$schemeAndId$cleanInner"
+                                                        } else {
+                                                            "$commonPrefix/$relativePath".replace(Regex("/{2,}"), "/")
+                                                        }
+                                                    }
+                                                } else {
+                                                    val relativePath = (currentPath + subFolder).joinToString("/")
+                                                    if (commonPrefix.isEmpty()) relativePath else "$commonPrefix/$relativePath"
+                                                }
+                                                FtpFolderIcon(
+                                                    folderPath = folderPathForLogo,
+                                                    viewModel = viewModel,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    tint = CyberTeal
+                                                )
+                                            }
                                             Spacer(modifier = Modifier.width(12.dp))
-                                            Column {
+                                            Column(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clickable {
+                                                        currentPath = currentPath + subFolder
+                                                    }
+                                            ) {
                                                 Text(
-                                                    text = folderName,
+                                                    text = subFolder,
                                                     color = Color.White,
                                                     fontWeight = FontWeight.Bold,
-                                                    fontSize = 14.sp,
+                                                    fontSize = 13.sp,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
                                                 Text(
-                                                    text = "${tracksInFolder.size} pistas",
-                                                    color = CyberTeal,
+                                                    text = "${subTracksRecursive.size} pistas",
+                                                    color = Color.Gray,
                                                     fontSize = 11.sp
                                                 )
                                             }
+
+                                            // Explicit play whole folder button on the far right
+                                            IconButton(
+                                                onClick = {
+                                                    val playlistPlaylists = subTracksRecursive.map {
+                                                        PlaylistItem(
+                                                            id = 0,
+                                                            playlistId = -1,
+                                                            fileName = it.title,
+                                                            filePath = it.filePath,
+                                                            fileSize = it.size
+                                                        )
+                                                    }
+                                                    if (playlistPlaylists.isNotEmpty()) {
+                                                        AudioPlayerManager.playTrack(context, playlistPlaylists.first(), playlistPlaylists)
+                                                        onNavigateToPlayer()
+                                                    }
+                                                },
+                                                modifier = Modifier
+                                                    .background(Color(0xFF00E676).copy(alpha = 0.15f), CircleShape)
+                                                    .size(32.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.PlayArrow,
+                                                    contentDescription = "Reproducir carpeta entera",
+                                                    tint = Color(0xFF00E676),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
                                         }
-
-                                        Icon(
-                                            imageVector = if (isFolderExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                            contentDescription = null,
-                                            tint = Color.Gray
-                                        )
-                                    }
-                                }
-                            }
-
-                            if (isFolderExpanded) {
-                                items(tracksInFolder) { track ->
-                                    Row(modifier = Modifier.padding(start = 12.dp)) {
-                                        LocalTrackCard(track = track, context = context, viewModel = viewModel, allTracksInView = tracksInFolder)
                                     }
                                 }
                             }
                         }
+
+                        items(filesInCurrentDir) { track ->
+                            LocalTrackCard(
+                                track = track,
+                                context = context,
+                                viewModel = viewModel,
+                                allTracksInView = filesInCurrentDir,
+                                onNavigateToPlayer = onNavigateToPlayer
+                            )
+                        }
                     }
                     "Todas" -> {
                         items(filteredTracks) { track ->
-                            LocalTrackCard(track = track, context = context, viewModel = viewModel, allTracksInView = filteredTracks)
+                            LocalTrackCard(track = track, context = context, viewModel = viewModel, allTracksInView = filteredTracks, onNavigateToPlayer = onNavigateToPlayer)
                         }
                     }
                     "Artista" -> {
@@ -2067,7 +5299,7 @@ fun LocalLibraryDetailsScreen(viewModel: FtpViewModel, showOnlyFtp: Boolean = fa
                             if (expandedGroup == artist) {
                                 items(tracksForArtist) { track ->
                                     Row(modifier = Modifier.padding(start = 12.dp)) {
-                                        LocalTrackCard(track = track, context = context, viewModel = viewModel, allTracksInView = tracksForArtist)
+                                        LocalTrackCard(track = track, context = context, viewModel = viewModel, allTracksInView = tracksForArtist, onNavigateToPlayer = onNavigateToPlayer)
                                     }
                                 }
                             }
@@ -2084,7 +5316,7 @@ fun LocalLibraryDetailsScreen(viewModel: FtpViewModel, showOnlyFtp: Boolean = fa
                             if (expandedGroup == genre) {
                                 items(tracksForGenre) { track ->
                                     Row(modifier = Modifier.padding(start = 12.dp)) {
-                                        LocalTrackCard(track = track, context = context, viewModel = viewModel, allTracksInView = tracksForGenre)
+                                        LocalTrackCard(track = track, context = context, viewModel = viewModel, allTracksInView = tracksForGenre, onNavigateToPlayer = onNavigateToPlayer)
                                     }
                                 }
                             }
@@ -2101,7 +5333,7 @@ fun LocalLibraryDetailsScreen(viewModel: FtpViewModel, showOnlyFtp: Boolean = fa
                             if (expandedGroup == year) {
                                 items(tracksForYear) { track ->
                                     Row(modifier = Modifier.padding(start = 12.dp)) {
-                                        LocalTrackCard(track = track, context = context, viewModel = viewModel, allTracksInView = tracksForYear)
+                                        LocalTrackCard(track = track, context = context, viewModel = viewModel, allTracksInView = tracksForYear, onNavigateToPlayer = onNavigateToPlayer)
                                     }
                                 }
                             }
@@ -2111,6 +5343,7 @@ fun LocalLibraryDetailsScreen(viewModel: FtpViewModel, showOnlyFtp: Boolean = fa
             }
         }
     }
+}
 
 fun getCoverCacheInfo(context: android.content.Context): Pair<Long, Int> {
     return try {
@@ -2137,6 +5370,43 @@ fun clearCoverCache(context: android.content.Context): Boolean {
                 success = false
             }
         }
+        val folderLogosDir = java.io.File(context.cacheDir, "ftp_folder_logos")
+        if (folderLogosDir.exists()) {
+            folderLogosDir.listFiles()?.forEach { 
+                if (!it.delete()) {
+                    success = false
+                }
+            }
+        }
+        success
+    } catch (e: Exception) {
+        false
+    }
+}
+
+fun getScannedLibraryCoversInfo(context: android.content.Context): Pair<Long, Int> {
+    return try {
+        val dir = java.io.File(context.filesDir, "scanned_covers")
+        if (!dir.exists()) return Pair(0L, 0)
+        val files = dir.listFiles() ?: emptyArray()
+        val totalSize = files.sumOf { it.length() }
+        Pair(totalSize, files.size)
+    } catch (e: Exception) {
+        Pair(0L, 0)
+    }
+}
+
+fun clearScannedLibraryCovers(context: android.content.Context): Boolean {
+    return try {
+        val dir = java.io.File(context.filesDir, "scanned_covers")
+        if (!dir.exists()) return true
+        val files = dir.listFiles() ?: emptyArray()
+        var success = true
+        for (f in files) {
+            if (!f.delete()) {
+                success = false
+            }
+        }
         success
     } catch (e: Exception) {
         false
@@ -2150,11 +5420,88 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
     val scope = rememberCoroutineScope()
     val scanFolders by viewModel.scanFolders.collectAsStateWithLifecycle()
     val savedConnections by viewModel.savedConnections.collectAsStateWithLifecycle()
+    val isConnected by viewModel.isConnected.collectAsStateWithLifecycle()
+    val activeConnection by viewModel.activeConnection.collectAsStateWithLifecycle()
+    var folderToDelete by remember { mutableStateOf<ScanFolder?>(null) }
     
     // Pickers and States
     val prefs = remember { context.getSharedPreferences("ftp_hub_settings", android.content.Context.MODE_PRIVATE) }
     var bufferLimitMins by remember { mutableStateOf(prefs.getInt("radio_buffer_limit_minutes", 120)) }
+    var ftpTimeoutMins by remember { mutableStateOf(prefs.getInt("ftp_timeout_minutes", 0)) }
     var recordingPath by remember { mutableStateOf(prefs.getString("recording_destination_dir", "") ?: "") }
+    var durationFormatMode by remember { mutableStateOf(prefs.getString("duration_format_mode", "minutes_seconds") ?: "minutes_seconds") }
+    var autoReconnectLive by remember { mutableStateOf(prefs.getBoolean("radio_auto_reconnect_live", false)) }
+    var reconnectPausedEnabled by remember { mutableStateOf(prefs.getBoolean("radio_reconnect_paused_enabled", false)) }
+    var twoTapsToPauseSetting by remember { mutableStateOf(prefs.getBoolean("two_taps_to_pause_enabled", false)) }
+    var ftpHeartbeatEnabled by remember { mutableStateOf(prefs.getBoolean("ftp_heartbeat_enabled", false)) }
+    var radioForceResumeOnBufferFreeze by remember { mutableStateOf(prefs.getBoolean("radio_force_resume_on_buffer_freeze", false)) }
+    var autoPlayOnStartup by remember { mutableStateOf(prefs.getBoolean("auto_play_on_startup", false)) }
+
+    androidx.compose.runtime.DisposableEffect(context) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "radio_auto_reconnect_live") {
+                autoReconnectLive = prefs.getBoolean("radio_auto_reconnect_live", false)
+            } else if (key == "radio_reconnect_paused_enabled") {
+                reconnectPausedEnabled = prefs.getBoolean("radio_reconnect_paused_enabled", false)
+            } else if (key == "two_taps_to_pause_enabled") {
+                twoTapsToPauseSetting = prefs.getBoolean("two_taps_to_pause_enabled", false)
+            } else if (key == "ftp_heartbeat_enabled") {
+                ftpHeartbeatEnabled = prefs.getBoolean("ftp_heartbeat_enabled", false)
+            } else if (key == "radio_force_resume_on_buffer_freeze") {
+                radioForceResumeOnBufferFreeze = prefs.getBoolean("radio_force_resume_on_buffer_freeze", false)
+            } else if (key == "auto_play_on_startup") {
+                autoPlayOnStartup = prefs.getBoolean("auto_play_on_startup", false)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            prefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
+
+    if (folderToDelete != null) {
+        val f = folderToDelete!!
+        AlertDialog(
+            onDismissRequest = { folderToDelete = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = WarningHotPink,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Eliminar carpeta de escaneo 📂", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Text(
+                    text = "¿Estás seguro de que deseas quitar la de ruta de escaneo '${f.path}'? No se eliminarán los archivos originales, pero dejarán de listarse en tu biblioteca.",
+                    color = Color.LightGray,
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.removeScanFolder(f)
+                        folderToDelete = null
+                        Toast.makeText(context, "Ruta de exploración eliminada correctamente", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White)
+                ) {
+                    Text("ELIMINAR", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { folderToDelete = null }) {
+                    Text("CANCELAR", color = Color.Gray)
+                }
+            },
+            containerColor = CyberSurface
+        )
+    }
 
     val recFolderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -2187,52 +5534,9 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
         }
     }
 
-    var activeSettingsTab by remember { mutableStateOf(0) } // 0 = FTP Servidores, 1 = Radios & Carpetas, 2 = Memoria Caché, 3 = Permisos, 4 = Manual, 5 = Cambios, 6 = Info
+    val activeSettingsTab by viewModel.activeSettingsTab.collectAsStateWithLifecycle()
 
     Column(modifier = Modifier.fillMaxSize()) {
-        ScrollableTabRow(
-            selectedTabIndex = activeSettingsTab,
-            containerColor = CyberDark,
-            contentColor = CyberTeal,
-            edgePadding = 8.dp
-        ) {
-            Tab(
-                selected = activeSettingsTab == 0,
-                onClick = { activeSettingsTab = 0 },
-                text = { Text("FTP CONECTAR 🔌", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
-            )
-            Tab(
-                selected = activeSettingsTab == 1,
-                onClick = { activeSettingsTab = 1 },
-                text = { Text("RADIOS & RUTAS 📻", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
-            )
-            Tab(
-                selected = activeSettingsTab == 2,
-                onClick = { activeSettingsTab = 2 },
-                text = { Text("MEMORIA CACHÉ 🧹", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
-            )
-            Tab(
-                selected = activeSettingsTab == 3,
-                onClick = { activeSettingsTab = 3 },
-                text = { Text("PERMISOS ☑️", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
-            )
-            Tab(
-                selected = activeSettingsTab == 4,
-                onClick = { activeSettingsTab = 4 },
-                text = { Text("MANUAL 📖", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
-            )
-            Tab(
-                selected = activeSettingsTab == 5,
-                onClick = { activeSettingsTab = 5 },
-                text = { Text("NOVEDADES v1.1 📋", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
-            )
-            Tab(
-                selected = activeSettingsTab == 6,
-                onClick = { activeSettingsTab = 6 },
-                text = { Text("INFO Y VERSIÓN ℹ️", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
-            )
-        }
-
         Box(modifier = Modifier.weight(1f)) {
             when (activeSettingsTab) {
                 0 -> {
@@ -2293,10 +5597,12 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                                     horizontalArrangement = Arrangement.SpaceBetween
                                                 ) {
                                                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                                        val isFolderActive = folder.isFtp && isConnected && activeConnection?.id == folder.ftpConnectionId
+                                                        val folderIconTint = if (isFolderActive) Color(0xFF4CAF50) else if (folder.isFtp) CyberTeal else SoftTeal
                                                         Icon(
                                                             imageVector = if (folder.isFtp) Icons.Default.CloudQueue else Icons.Default.Folder,
                                                             contentDescription = null,
-                                                            tint = if (folder.isFtp) CyberTeal else SoftTeal,
+                                                            tint = folderIconTint,
                                                             modifier = Modifier.size(18.dp)
                                                         )
                                                         Spacer(modifier = Modifier.width(8.dp))
@@ -2316,19 +5622,50 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                                             )
                                                         }
                                                     }
-                                                    IconButton(
-                                                        onClick = {
-                                                            viewModel.removeScanFolder(folder)
-                                                            Toast.makeText(context, "Ruta de escaneo eliminada", Toast.LENGTH_SHORT).show()
-                                                        },
-                                                        modifier = Modifier.size(28.dp)
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.DeleteOutline,
-                                                            contentDescription = "Quitar",
-                                                            tint = WarningHotPink,
-                                                            modifier = Modifier.size(18.dp)
-                                                        )
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        // Complete deep scan
+                                                        IconButton(
+                                                            onClick = {
+                                                                viewModel.scanAllFolders(context, targetFolderId = folder.id, forceDeepScan = true)
+                                                            },
+                                                            modifier = Modifier.size(28.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.LibraryMusic,
+                                                                contentDescription = "Escaneo Completo (Metadatos/Carátulas)",
+                                                                tint = CyberTeal,
+                                                                modifier = Modifier.size(18.dp)
+                                                            )
+                                                        }
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        // Fast scan
+                                                        IconButton(
+                                                            onClick = {
+                                                                viewModel.scanAllFolders(context, targetFolderId = folder.id, forceDeepScan = false)
+                                                            },
+                                                            modifier = Modifier.size(28.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Refresh,
+                                                                contentDescription = "Escaneo Rápido (Solo Indexar)",
+                                                                tint = SoftTeal,
+                                                                modifier = Modifier.size(18.dp)
+                                                            )
+                                                        }
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        IconButton(
+                                                            onClick = {
+                                                                folderToDelete = folder
+                                                            },
+                                                            modifier = Modifier.size(28.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.DeleteOutline,
+                                                                contentDescription = "Quitar",
+                                                                tint = WarningHotPink,
+                                                                modifier = Modifier.size(18.dp)
+                                                            )
+                                                        }
                                                     }
                                                 }
                                             }
@@ -2532,6 +5869,162 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                             }
                         }
 
+                        // Section: Configuración de Escaneo (Rápido vs Profundo)
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.Settings, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Configuración de Velocidad de Escaneo", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text("Define cómo la aplicación recopila información de tus archivos. Las configuraciones se guardan automáticamente.", fontSize = 10.sp, color = Color.Gray)
+                                    
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(CyberCharcoal, RoundedCornerShape(8.dp))
+                                            .padding(4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        val isDeep by viewModel.isDeepScanEnabled.collectAsStateWithLifecycle()
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .background(
+                                                    if (!isDeep) CyberTeal else Color.Transparent,
+                                                    RoundedCornerShape(6.dp)
+                                                )
+                                                .clickable { viewModel.setDeepScanEnabled(false) }
+                                                .padding(vertical = 8.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "⚡ Rápido (Segundos)",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (!isDeep) CyberDark else Color.LightGray
+                                            )
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .background(
+                                                    if (isDeep) CyberTeal else Color.Transparent,
+                                                    RoundedCornerShape(6.dp)
+                                                )
+                                                .clickable { viewModel.setDeepScanEnabled(true) }
+                                                .padding(vertical = 8.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "🔍 Profundo (Completo)",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isDeep) CyberDark else Color.LightGray
+                                            )
+                                        }
+                                    }
+                                    
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "• Modo Rápido: Lee exclusivamente nombres de archivo en segundos sin escaneos de CPU.\n• Modo Profundo: Extrae etiquetas ID3, duración de audio, artista real y metadata de carátulas (duración variable según número de archivos).",
+                                        fontSize = 10.sp,
+                                        color = Color.LightGray,
+                                        lineHeight = 14.sp,
+                                        modifier = Modifier.padding(horizontal = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Section: Formato de Tiempo de Pistas (Minutos vs Minutos/Segundos)
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.Timer, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Detector y Visualización de Tiempo", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text("Elige cómo mostrar el tiempo de duración en pistas FTP y Local. Recomendamos usar Solo Minutos si la precisión en FTP varía.", fontSize = 10.sp, color = Color.Gray)
+                                    
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(CyberCharcoal, RoundedCornerShape(8.dp))
+                                            .padding(4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .background(
+                                                    if (durationFormatMode == "minutes_seconds") CyberTeal else Color.Transparent,
+                                                    RoundedCornerShape(6.dp)
+                                                )
+                                                .clickable { 
+                                                    durationFormatMode = "minutes_seconds"
+                                                    prefs.edit().putString("duration_format_mode", "minutes_seconds").apply()
+                                                    Toast.makeText(context, "Formato: Minutos y Segundos", Toast.LENGTH_SHORT).show()
+                                                }
+                                                .padding(vertical = 8.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "🕒 Min + Seg (MM:SS)",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (durationFormatMode == "minutes_seconds") CyberDark else Color.LightGray
+                                            )
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .background(
+                                                    if (durationFormatMode == "only_minutes") CyberTeal else Color.Transparent,
+                                                    RoundedCornerShape(6.dp)
+                                                )
+                                                .clickable { 
+                                                    durationFormatMode = "only_minutes"
+                                                    prefs.edit().putString("duration_format_mode", "only_minutes").apply()
+                                                    Toast.makeText(context, "Formato: Solo Minutos", Toast.LENGTH_SHORT).show()
+                                                }
+                                                .padding(vertical = 8.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "⏱️ Solo Minutos (Aprox)",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (durationFormatMode == "only_minutes") CyberDark else Color.LightGray
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         // Section 2: Agregar Emisoras de Radio Online
                         item {
                             Card(
@@ -2624,6 +6117,270 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Text("Guardar Nueva Radio", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Section: Importador de Radios por Listas M3U / M3U8
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.Radio, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Importar Radios desde Listas M3U", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    var m3uSourceMode by remember { mutableStateOf("url") } // "url" or "text"
+                                    var m3uUrlInput by remember { mutableStateOf("https://www.tdtchannels.com/lists/radio.m3u8") }
+                                    var m3uTextInput by remember { mutableStateOf("") }
+
+                                    val isImportLoading by viewModel.isImportLoading.collectAsStateWithLifecycle()
+                                    val parsedImportChannels by viewModel.parsedImportChannels.collectAsStateWithLifecycle()
+                                    val importMessage by viewModel.importMessage.collectAsStateWithLifecycle()
+
+                                    Text("Carga radios masivamente ingresando la URL de un listado online M3U/M3U8 o pegando texto estructurado.", fontSize = 10.sp, color = Color.Gray)
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().background(CyberCharcoal.copy(alpha = 0.4f), RoundedCornerShape(8.dp)).padding(8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("📍 TDTChannels Radio (Predeterminado)", color = CyberTeal, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            text = "CARGAR URL",
+                                            color = Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier
+                                                .background(CyberTeal.copy(alpha = 0.25f), RoundedCornerShape(4.dp))
+                                                .clickable {
+                                                    m3uUrlInput = "https://www.tdtchannels.com/lists/radio.m3u8"
+                                                    Toast.makeText(context, "URL de TDTChannels Radio establecida", Toast.LENGTH_SHORT).show()
+                                                }
+                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().background(CyberCharcoal.copy(alpha = 0.5f), RoundedCornerShape(6.dp)).padding(2.dp)
+                                    ) {
+                                            Box(
+                                                modifier = Modifier.weight(1f).background(if (m3uSourceMode == "url") CyberCharcoal else Color.Transparent, RoundedCornerShape(4.dp)).clickable { m3uSourceMode = "url" }.padding(6.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text("Cargar con URL", fontSize = 10.sp, color = Color.White)
+                                            }
+                                            Box(
+                                                modifier = Modifier.weight(1f).background(if (m3uSourceMode == "text") CyberCharcoal else Color.Transparent, RoundedCornerShape(4.dp)).clickable { m3uSourceMode = "text" }.padding(6.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text("Pegar Texto M3U", fontSize = 10.sp, color = Color.White)
+                                            }
+                                        }
+
+                                        if (m3uSourceMode == "url") {
+                                            OutlinedTextField(
+                                                value = m3uUrlInput,
+                                                onValueChange = { m3uUrlInput = it },
+                                                label = { Text("https://ejemplo.com/lista.m3u") },
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = CyberTeal,
+                                                    focusedLabelColor = CyberTeal,
+                                                    unfocusedBorderColor = CyberCharcoal,
+                                                    focusedTextColor = Color.White,
+                                                    unfocusedTextColor = Color.White
+                                                ),
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                            Button(
+                                                onClick = {
+                                                    if (m3uUrlInput.isNotBlank()) {
+                                                        viewModel.fetchAndParseM3u(m3uUrlInput.trim())
+                                                    } else {
+                                                        Toast.makeText(context, "Inserta una URL M3U válida", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark),
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.fillMaxWidth(),
+                                                enabled = !isImportLoading
+                                            ) {
+                                                Text("Descargar y Extraer M3U URL", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        } else {
+                                            OutlinedTextField(
+                                                value = m3uTextInput,
+                                                onValueChange = { m3uTextInput = it },
+                                                label = { Text("Pegar contenido de archivo M3U aquí...") },
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = CyberTeal,
+                                                    focusedLabelColor = CyberTeal,
+                                                    unfocusedBorderColor = CyberCharcoal,
+                                                    focusedTextColor = Color.White,
+                                                    unfocusedTextColor = Color.White
+                                                ),
+                                                modifier = Modifier.fillMaxWidth().height(120.dp),
+                                                maxLines = 10
+                                            )
+                                            Button(
+                                                onClick = {
+                                                    if (m3uTextInput.isNotBlank()) {
+                                                        viewModel.parseRawM3u(m3uTextInput)
+                                                    } else {
+                                                        Toast.makeText(context, "Pega contenido de texto M3U válido", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark),
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.fillMaxWidth(),
+                                                enabled = !isImportLoading
+                                            ) {
+                                                Text("Analizar Texto M3U", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+
+                                    if (isImportLoading) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
+                                        ) {
+                                            CircularProgressIndicator(color = CyberTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(importMessage ?: "Procesando listado...", color = Color.Gray, fontSize = 11.sp)
+                                        }
+                                    } else if (!importMessage.isNullOrBlank()) {
+                                        Text(importMessage ?: "", color = CyberTeal, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+
+                                    if (parsedImportChannels.isNotEmpty()) {
+                                        var searchQuery by remember { mutableStateOf("") }
+                                        val filteredChannels = remember(searchQuery, parsedImportChannels) {
+                                            parsedImportChannels.filter { it.name.contains(searchQuery, ignoreCase = true) }
+                                        }
+
+                                        OutlinedTextField(
+                                            value = searchQuery,
+                                            onValueChange = { searchQuery = it },
+                                            placeholder = { Text("Filtrar canales por nombre...", fontSize = 11.sp, color = Color.LightGray) },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = CyberTeal,
+                                                unfocusedBorderColor = CyberCharcoal,
+                                                focusedTextColor = Color.White,
+                                                unfocusedTextColor = Color.White
+                                            )
+                                        )
+
+                                        val selectedToImport = remember(parsedImportChannels) { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
+                                        
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text("Canales: ${filteredChannels.size} (Sel: ${selectedToImport.filter { it.value }.size})", fontSize = 11.sp, color = Color.LightGray)
+                                            
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Text(
+                                                    "Marcar Todos",
+                                                    color = CyberTeal,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.clickable {
+                                                        filteredChannels.forEach { selectedToImport[it.url] = true }
+                                                    }
+                                                )
+                                                Text(
+                                                    "Desmarcar Todos",
+                                                    color = WarningHotPink,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.clickable {
+                                                        selectedToImport.clear()
+                                                    }
+                                                )
+                                            }
+                                        }
+
+                                        androidx.compose.foundation.lazy.LazyColumn(
+                                            modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp)
+                                                .background(CyberCharcoal.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                                .border(0.5.dp, CyberCharcoal, RoundedCornerShape(8.dp))
+                                                .padding(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            items(filteredChannels.size) { index ->
+                                                val item = filteredChannels[index]
+                                                val isChecked = selectedToImport[item.url] == true
+                                                
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .background(if (isChecked) CyberTeal.copy(alpha = 0.1f) else Color.Transparent, RoundedCornerShape(4.dp))
+                                                        .clickable {
+                                                            selectedToImport[item.url] = !isChecked
+                                                        }
+                                                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Checkbox(
+                                                        checked = isChecked,
+                                                        onCheckedChange = { selectedToImport[item.url] = it == true },
+                                                        colors = CheckboxDefaults.colors(
+                                                            checkedColor = CyberTeal,
+                                                            uncheckedColor = Color.Gray,
+                                                            checkmarkColor = CyberDark
+                                                        )
+                                                    )
+                                                    
+                                                    if (!item.logoUri.isNullOrBlank()) {
+                                                        AsyncImage(
+                                                            model = item.logoUri,
+                                                            contentDescription = "Logo",
+                                                            modifier = Modifier
+                                                                .size(24.dp)
+                                                                .clip(RoundedCornerShape(4.dp))
+                                                                .background(Color.DarkGray)
+                                                                .padding(2.dp),
+                                                            contentScale = ContentScale.Crop
+                                                        )
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                    }
+                                                    
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(item.name, fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1)
+                                                        Text(item.url, fontSize = 9.sp, color = Color.Gray, maxLines = 1)
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        Button(
+                                            onClick = {
+                                                val selectedList = filteredChannels.filter { selectedToImport[it.url] == true }
+                                                if (selectedList.isNotEmpty()) {
+                                                    viewModel.importSelectedRadios(selectedList)
+                                                    Toast.makeText(context, "Sintonizadas ${selectedList.size} emisoras correctamente 📻", Toast.LENGTH_LONG).show()
+                                                    viewModel.clearImportState()
+                                                } else {
+                                                    Toast.makeText(context, "Por favor, selecciona al menos 1 emisora", Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text("Importar Seleccionadas (${selectedToImport.filter { it.value }.size})", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             }
@@ -2756,13 +6513,1233 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                             )
                                         )
                                     }
+
+                                    Divider(color = CyberCharcoal, modifier = Modifier.padding(vertical = 8.dp))
+
+                                    Text(
+                                        text = "Límite del Buffer de Radio",
+                                        color = CyberTeal,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(bottom = 4.dp)
+                                    )
+                                    Text(
+                                        text = "Define el tamaño máximo en minutos para el archivo temporal de Timeshift para prevenir saturación de la memoria física.",
+                                        color = Color.Gray,
+                                        fontSize = 9.sp,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        val limits = listOf(30, 60, 120, 180, 240)
+                                        limits.forEach { limit ->
+                                            val isSelected = bufferLimitMins == limit
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .background(
+                                                        if (isSelected) CyberTeal else CyberCharcoal,
+                                                        RoundedCornerShape(8.dp)
+                                                    )
+                                                    .clickable {
+                                                        bufferLimitMins = limit
+                                                        prefs.edit().putInt("radio_buffer_limit_minutes", limit).apply()
+                                                        Toast.makeText(context, "Búfer de Radio establecido en $limit minutos", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                    .padding(vertical = 8.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = "${limit}m",
+                                                    color = if (isSelected) CyberDark else Color.White,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 11.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Section Inactividad Desconexión FTP (Custom config)
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                border = BorderStroke(1.dp, CyberTeal.copy(alpha = 0.25f)),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = null,
+                                            tint = CyberTeal,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Inactividad Desconexión FTP",
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "Tiempo de inactividad antes de desconectar automáticamente el FTP (el valor 'Nunca' lo desactiva completamente).",
+                                        color = Color.Gray,
+                                        fontSize = 10.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        val options = listOf(
+                                            0 to "Nunca",
+                                            30 to "30m",
+                                            60 to "60m",
+                                            120 to "120m"
+                                        )
+                                        options.forEach { (mins, label) ->
+                                            val isSelected = ftpTimeoutMins == mins
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .background(
+                                                        if (isSelected) CyberTeal else CyberCharcoal,
+                                                        RoundedCornerShape(8.dp)
+                                                    )
+                                                    .clickable {
+                                                        ftpTimeoutMins = mins
+                                                        prefs.edit().putInt("ftp_timeout_minutes", mins).apply()
+                                                        Toast.makeText(context, "Inactividad FTP: $label", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                    .padding(vertical = 8.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = label,
+                                                    color = if (isSelected) CyberDark else Color.White,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 11.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Section 4: Ruta de Podcasts y Grabaciones Portables
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.FolderOpen,
+                                            contentDescription = null,
+                                            tint = CyberTeal,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Ruta de Podcasts y Grabaciones",
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "Escribe o selecciona gráficamente el destino absoluto en tu sintonizador local para salvar de forma portable los fragmentos grabados.",
+                                        color = Color.Gray,
+                                        fontSize = 10.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(14.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedTextField(
+                                            value = if (recordingPath.isEmpty()) "Carpeta de Grabaciones (Predeterminado)" else recordingPath,
+                                            onValueChange = {
+                                                recordingPath = it
+                                                prefs.edit().putString("recording_destination_dir", it).apply()
+                                            },
+                                            readOnly = true,
+                                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = Color.White),
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(8.dp),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = CyberTeal,
+                                                unfocusedBorderColor = CyberCharcoal,
+                                                focusedContainerColor = CyberDark,
+                                                unfocusedContainerColor = CyberDark
+                                            )
+                                        )
+
+                                        IconButton(
+                                            onClick = { recFolderLauncher.launch(null) },
+                                            modifier = Modifier
+                                                .size(48.dp)
+                                                .background(CyberCharcoal, RoundedCornerShape(8.dp))
+                                        ) {
+                                            Icon(Icons.Default.FolderOpen, contentDescription = "Elegir Carpeta", tint = CyberTeal)
+                                        }
+                                    }
+
+                                    if (recordingPath.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        TextButton(
+                                            onClick = {
+                                                recordingPath = ""
+                                                prefs.edit().putString("recording_destination_dir", "").apply()
+                                                Toast.makeText(context, "Ruta restaurada por defecto", Toast.LENGTH_SHORT).show()
+                                            },
+                                            modifier = Modifier.align(Alignment.End)
+                                        ) {
+                                            Text("Restaurar Carpeta Interna", color = WarningHotPink, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Section: Configuración de Reconexión de radio
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = null,
+                                            tint = CyberTeal,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Reconexión de Radio Online",
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "Configura el comportamiento automático del reproductor de radio cuando sufra un corte de red inesperado:",
+                                        color = Color.Gray,
+                                        fontSize = 10.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(14.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Auto-reconectar en Vivo", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                                            Text("Sintoniza el directo de inmediato tras un corte", color = Color.Gray, fontSize = 9.sp)
+                                        }
+                                        Switch(
+                                            checked = autoReconnectLive,
+                                            onCheckedChange = { checked ->
+                                                autoReconnectLive = checked
+                                                if (checked) {
+                                                    reconnectPausedEnabled = false
+                                                    prefs.edit()
+                                                        .putBoolean("radio_auto_reconnect_live", true)
+                                                        .putBoolean("radio_reconnect_paused_enabled", false)
+                                                        .apply()
+                                                } else {
+                                                    prefs.edit().putBoolean("radio_auto_reconnect_live", false).apply()
+                                                }
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = CyberDark,
+                                                checkedTrackColor = CyberTeal,
+                                                uncheckedThumbColor = Color.Gray,
+                                                uncheckedTrackColor = CyberCharcoal
+                                            )
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Reanudar en Pausa", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                                            Text("Aísla el buffer y prepara la radio pausada tras un corte", color = Color.Gray, fontSize = 9.sp)
+                                        }
+                                        Switch(
+                                            checked = reconnectPausedEnabled,
+                                            onCheckedChange = { checked ->
+                                                reconnectPausedEnabled = checked
+                                                if (checked) {
+                                                    autoReconnectLive = false
+                                                    prefs.edit()
+                                                        .putBoolean("radio_reconnect_paused_enabled", true)
+                                                        .putBoolean("radio_auto_reconnect_live", false)
+                                                        .apply()
+                                                } else {
+                                                    prefs.edit().putBoolean("radio_reconnect_paused_enabled", false).apply()
+                                                }
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = CyberDark,
+                                                checkedTrackColor = CyberTeal,
+                                                uncheckedThumbColor = Color.Gray,
+                                                uncheckedTrackColor = CyberCharcoal
+                                            )
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Pausa de Radio a Doble Toque", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                                            Text("Evita pausas accidentales requiriendo dos pulsaciones", color = Color.Gray, fontSize = 9.sp)
+                                        }
+                                        Switch(
+                                            checked = twoTapsToPauseSetting,
+                                            onCheckedChange = { checked ->
+                                                twoTapsToPauseSetting = checked
+                                                prefs.edit().putBoolean("two_taps_to_pause_enabled", checked).apply()
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = CyberDark,
+                                                checkedTrackColor = CyberTeal,
+                                                uncheckedThumbColor = Color.Gray,
+                                                uncheckedTrackColor = CyberCharcoal
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // FTP Log Console Card inside Settings
+                        item {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text("CONSOLA DE DEPURACIÓN Y LOGS", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.sp)
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            var isConsoleVisible by remember { mutableStateOf(false) }
+                            val visualLogs by viewModel.visualLogs.collectAsStateWithLifecycle(emptyList())
+
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { isConsoleVisible = !isConsoleVisible }
+                                            .padding(vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.BugReport,
+                                                contentDescription = null,
+                                                tint = CyberTeal,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Consola de Logs FTP / Buffer", color = CyberLight, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        }
+                                        Text(
+                                            if (isConsoleVisible) "OCULTAR" else "MOSTRAR PANEL",
+                                            color = CyberTeal,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
+                                    if (isConsoleVisible) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(180.dp)
+                                                .background(Color.Black, RoundedCornerShape(8.dp))
+                                                .border(1.dp, CyberCharcoal, RoundedCornerShape(8.dp))
+                                                .padding(8.dp)
+                                        ) {
+                                            if (visualLogs.isEmpty()) {
+                                                Text(
+                                                    "No hay registros disponibles. Los logs del buffer FTP y tiempos de respuesta aparecerán aquí.",
+                                                    color = Color.Gray,
+                                                    fontSize = 10.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    modifier = Modifier.align(Alignment.Center)
+                                                )
+                                            } else {
+                                                val lazyScrollState = androidx.compose.foundation.lazy.rememberLazyListState()
+                                                
+                                                LaunchedEffect(visualLogs.size) {
+                                                    if (visualLogs.isNotEmpty()) {
+                                                        try {
+                                                            lazyScrollState.animateScrollToItem(visualLogs.size - 1)
+                                                        } catch (_: Exception) {}
+                                                    }
+                                                }
+                                                
+                                                LazyColumn(
+                                                    state = lazyScrollState,
+                                                    modifier = Modifier.fillMaxSize()
+                                                ) {
+                                                    items(visualLogs) { log ->
+                                                        Text(
+                                                            text = log,
+                                                            color = Color(0xFF00FFCC),
+                                                            fontSize = 9.sp,
+                                                            fontFamily = FontFamily.Monospace,
+                                                            modifier = Modifier.padding(bottom = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.End
+                                        ) {
+                                            TextButton(
+                                                onClick = { viewModel.clearVisualLogs() },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                            ) {
+                                                Icon(Icons.Default.Delete, contentDescription = null, tint = WarningHotPink, modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Limpiar Consola", color = WarningHotPink, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
                 2 -> {
+                    // Theme customization panel
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.Palette, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Modo Visual (Fondo de Pantalla)", color = CyberLight, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Text(
+                                        "Personaliza el fondo visual de la aplicación. Puedes alternar entre un fondo de tonos claros (blanco puro) o un tema oscuro inmersivo ideal para la noche.",
+                                        fontSize = 11.sp,
+                                        color = CyberLight.copy(alpha = 0.7f)
+                                    )
+                                    
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        // Dark Mode Button
+                                        Button(
+                                            onClick = {
+                                                com.example.ui.theme.AppThemeManager.updateTheme(context, true, com.example.ui.theme.AppThemeManager.accentMode)
+                                            },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = if (com.example.ui.theme.AppThemeManager.isDark) CyberTeal else CyberCharcoal,
+                                                contentColor = if (com.example.ui.theme.AppThemeManager.isDark) CyberDark else CyberLight
+                                            ),
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(Icons.Default.DarkMode, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Modo Oscuro", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+
+                                        // Light Mode Button
+                                        Button(
+                                            onClick = {
+                                                com.example.ui.theme.AppThemeManager.updateTheme(context, false, com.example.ui.theme.AppThemeManager.accentMode)
+                                            },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = if (!com.example.ui.theme.AppThemeManager.isDark) CyberTeal else CyberCharcoal,
+                                                contentColor = if (!com.example.ui.theme.AppThemeManager.isDark) CyberDark else CyberLight
+                                            ),
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(Icons.Default.LightMode, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Modo Claro", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.Widgets, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Estilo de Iconografía y Visual", color = CyberLight, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Text(
+                                        "Elige entre múltiples configuraciones de iconos para toda la interfaz de la app, dándole un aire retro, clásico, moderno o modo neutro sin iconos.",
+                                        fontSize = 11.sp,
+                                        color = CyberLight.copy(alpha = 0.7f)
+                                    )
+                                    
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        val styleList = listOf(
+                                            Triple("retro_color", "Estilo Retro 📼📻 (Colorido y Vintage)", "Iconografía clásica: con cassete vintage, disquetes, emisoras de radio y toques arcade de color neón adaptativo."),
+                                            Triple("classic_color", "Estilo Clásico 🏛️📜 (Material Estándar)", "Iconos planos clásicos estándar de Android/Material con sus colores y tintes normales de sistema."),
+                                            Triple("modern_color", "Estilo Moderno ✨🎨 (Neón Uniforme)", "Toda la iconografía del sistema se adapta uniformemente al color neón CyberTeal de forma futurista."),
+                                            Triple("neutral_none", "Modo Neutro 🏁🩶 (Sin Iconos)", "Elimina por completo todos los iconos visuales de la interfaz de la aplicación, dejando un diseño minimalista de puro texto.")
+                                        )
+                                        styleList.forEach { (styleKey, title, desc) ->
+                                            val isSelected = com.example.ui.theme.AppThemeManager.iconStyle == styleKey
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .background(
+                                                        if (isSelected) CyberTeal.copy(alpha = 0.15f) else Color.Transparent,
+                                                        RoundedCornerShape(8.dp)
+                                                    )
+                                                    .border(
+                                                        width = 1.dp,
+                                                        color = if (isSelected) CyberTeal else CyberCharcoal,
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    .clickable {
+                                                        com.example.ui.theme.AppThemeManager.updateIconStyle(context, styleKey)
+                                                        Toast.makeText(context, "Iconos cambiados a: ${title.split(" ")[1]}", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                    .padding(12.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(32.dp)
+                                                            .background(CyberCharcoal, CircleShape),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        val sampleColor = when (styleKey) {
+                                                            "neutral_none" -> Color.Transparent
+                                                            "classic_color" -> Color.White
+                                                            else -> CyberTeal
+                                                        }
+                                                        when (styleKey) {
+                                                            "retro_color" -> CassetteIcon(modifier = Modifier.size(16.dp), tint = sampleColor)
+                                                            "neutral_none" -> { /* No icon */ }
+                                                            else -> Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp), tint = sampleColor)
+                                                        }
+                                                    }
+                                                    Spacer(modifier = Modifier.width(12.dp))
+                                                    Column {
+                                                        Text(
+                                                            text = title,
+                                                            color = if (isSelected) CyberTeal else CyberLight,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 12.sp
+                                                        )
+                                                        Text(
+                                                            text = desc,
+                                                            color = Color.Gray,
+                                                            fontSize = 10.sp
+                                                        )
+                                                    }
+                                                }
+                                                if (isSelected) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = "Activo",
+                                                        tint = CyberTeal,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.ColorLens, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Colores de Acentuación Neón", color = CyberLight, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Text(
+                                        "Elige tu color neón preferido para las letras principales, botones destacados, indicadores activos y textos de control en toda la interfaz de la aplicación.",
+                                        fontSize = 11.sp,
+                                        color = CyberLight.copy(alpha = 0.7f)
+                                    )
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        val colorsList = listOf(
+                                            Triple("blue", "Neón Azul Ciano 💧", Color(0xFF00ADB5)),
+                                            Triple("purple", "Neón Lila Morado 🔮", Color(0xFFD0BCFF)),
+                                            Triple("green", "Neón Verde Android 🍏", Color(0xFF3DDC84)),
+                                            Triple("red", "Neón Rojo Fuego 🔥", Color(0xFFE23E57)),
+                                            Triple("custom", "Color de Elección Personalizado 🎛️", Color.hsv(com.example.ui.theme.AppThemeManager.customHue, 0.85f, 0.95f))
+                                        )
+                                        colorsList.forEach { (mode, name, previewColor) ->
+                                            val isSelected = com.example.ui.theme.AppThemeManager.accentMode == mode
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .background(
+                                                        if (isSelected) CyberTeal.copy(alpha = 0.15f) else Color.Transparent,
+                                                        RoundedCornerShape(8.dp)
+                                                    )
+                                                    .border(
+                                                        width = 1.dp,
+                                                        color = if (isSelected) CyberTeal else CyberCharcoal,
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    .clickable {
+                                                        com.example.ui.theme.AppThemeManager.updateTheme(context, com.example.ui.theme.AppThemeManager.isDark, mode)
+                                                    }
+                                                    .padding(12.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(16.dp)
+                                                            .background(previewColor, CircleShape)
+                                                            .border(1.5.dp, Color.White, CircleShape)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(12.dp))
+                                                    Text(
+                                                        text = name,
+                                                        color = if (isSelected) CyberTeal else CyberLight,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 12.sp
+                                                    )
+                                                }
+                                                if (isSelected) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = "Activo",
+                                                        tint = CyberTeal,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        if (com.example.ui.theme.AppThemeManager.accentMode == "custom") {
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = "Ajuste de Tonalidad Personalizada (${com.example.ui.theme.AppThemeManager.customHue.toInt()}°)",
+                                                color = CyberTeal,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(28.dp)
+                                                        .background(Color.hsv(com.example.ui.theme.AppThemeManager.customHue, 0.85f, 0.95f), RoundedCornerShape(4.dp))
+                                                        .border(1.dp, Color.White, RoundedCornerShape(4.dp))
+                                                )
+                                                Slider(
+                                                    value = com.example.ui.theme.AppThemeManager.customHue,
+                                                    onValueChange = { hue ->
+                                                        com.example.ui.theme.AppThemeManager.updateCustomHue(context, hue)
+                                                    },
+                                                    valueRange = 0f..360f,
+                                                    colors = SliderDefaults.colors(
+                                                        thumbColor = CyberTeal,
+                                                        activeTrackColor = CyberTeal,
+                                                        inactiveTrackColor = CyberCharcoal
+                                                    ),
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.Widgets, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Estilo y Sintonía del Widget 📻", color = CyberLight, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Text(
+                                        "Personaliza el color de fondo y el tono de acentuación del widget de reproducción de tu teléfono (5x2) para que se adapte mejor a tu pantalla de inicio.",
+                                        fontSize = 11.sp,
+                                        color = CyberLight.copy(alpha = 0.7f)
+                                    )
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        val widgetStyles = listOf(
+                                            Triple("match_app", "Sincronizado con la App 🔄🎨", "Usa de forma dinámica el mismo color neón e icono que tengas seleccionados en la app."),
+                                            Triple("dark_cyber", "Tema Cyber Oscuro 🌌🔋", "Fondo oscuro absoluto (#11141A) con acentos neón azul ciano."),
+                                            Triple("light_slate", "Modo Claro Minimalista 💡🏳️", "Fondo de color blanco elegante de alto contraste con textos y controles negros."),
+                                            Triple("blue_neon", "Neón Azul Ciano 💧✨", "Fondo oscuro con acentuaciones intensas en azul brillante."),
+                                            Triple("purple_neon", "Neón Lila Morado 🔮🎆", "Esquema de color estilo retro-futurista violeta."),
+                                            Triple("green_neon", "Neón Verde Android 🍏🔋", "Estilo Matrix con destellos de color verde."),
+                                            Triple("red_neon", "Neón Rojo Fuego 🔥🩸", "Aspecto deportivo con controles e indicador de reproducción en carmín encendido.")
+                                        )
+
+                                        widgetStyles.forEach { (styleKey, title, desc) ->
+                                            val isSelected = com.example.ui.theme.AppThemeManager.widgetColorStyle == styleKey
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .background(
+                                                        if (isSelected) CyberTeal.copy(alpha = 0.15f) else Color.Transparent,
+                                                        RoundedCornerShape(8.dp)
+                                                    )
+                                                    .border(
+                                                        width = 1.dp,
+                                                        color = if (isSelected) CyberTeal else CyberCharcoal,
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    .clickable {
+                                                        com.example.ui.theme.AppThemeManager.updateWidgetColorStyle(context, styleKey)
+                                                        Toast.makeText(context, "Widget actualizado a: ${title.split(" ")[0]}", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                    .padding(12.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                                                    val previewColor = when (styleKey) {
+                                                        "match_app" -> CyberTeal
+                                                        "dark_cyber" -> Color(0xFF00ADB5)
+                                                        "light_slate" -> Color(0xFF00ADB5)
+                                                        "blue_neon" -> Color(0xFF00ADB5)
+                                                        "purple_neon" -> Color(0xFFD0BCFF)
+                                                        "green_neon" -> Color(0xFF3DDC84)
+                                                        "red_neon" -> Color(0xFFE23E57)
+                                                        else -> CyberTeal
+                                                    }
+                                                    val previewBg = when (styleKey) {
+                                                        "light_slate" -> Color.White
+                                                        else -> Color(0xFF11141A)
+                                                    }
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(24.dp)
+                                                            .background(previewBg, CircleShape)
+                                                            .border(1.dp, previewColor, CircleShape),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(8.dp)
+                                                                .background(previewColor, CircleShape)
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.width(12.dp))
+                                                    Column {
+                                                        Text(
+                                                            text = title,
+                                                            color = if (isSelected) CyberTeal else CyberLight,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 12.sp
+                                                        )
+                                                        Text(
+                                                            text = desc,
+                                                            color = Color.Gray,
+                                                            fontSize = 10.sp
+                                                        )
+                                                    }
+                                                }
+                                                if (isSelected) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = "Activo",
+                                                        tint = CyberTeal,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.Tune, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Configuraciones de Reproducción", color = CyberLight, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Text(
+                                        "Personaliza opciones adicionales sobre el comportamiento de reproducción local y remota.",
+                                        fontSize = 11.sp,
+                                        color = CyberLight.copy(alpha = 0.7f)
+                                    )
+
+                                    // Opt 1: Jump directly to player
+                                    var autoJumpToPlayer by remember {
+                                        mutableStateOf(prefs.getBoolean("auto_jump_to_player", true))
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(CyberCharcoal, RoundedCornerShape(8.dp))
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text(
+                                                "Salto Directo al Reproductor",
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                "Si está activo, navegará de inmediato a la vista del reproductor tras pulsar una canción. Si se desactiva, seguirá navegando por las carpetas y se reproducirá en segundo plano.",
+                                                color = Color.Gray,
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                        Switch(
+                                            checked = autoJumpToPlayer,
+                                            onCheckedChange = { checked ->
+                                                autoJumpToPlayer = checked
+                                                prefs.edit().putBoolean("auto_jump_to_player", checked).apply()
+                                                if (checked) {
+                                                    Toast.makeText(context, "Navegación automática activa", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    Toast.makeText(context, "Reproducción silenciosa activa", Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = CyberDark,
+                                                checkedTrackColor = CyberTeal,
+                                                uncheckedThumbColor = Color.Gray,
+                                                uncheckedTrackColor = CyberCharcoal
+                                            )
+                                        )
+                                    }
+
+                                    // Opt 2: Prefetch next track toggler
+                                    var prefetchEnabledSetting by remember {
+                                        mutableStateOf(prefs.getBoolean("ftp_prefetch_enabled", true))
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(CyberCharcoal, RoundedCornerShape(8.dp))
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text(
+                                                "Precarga de Siguiente Pista",
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                "Verifica el estado de conexión FTP a los 40s restantes y descarga la siguiente canción a un búfer local a falta de 30s.",
+                                                color = Color.Gray,
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                        Switch(
+                                            checked = prefetchEnabledSetting,
+                                            onCheckedChange = { checked ->
+                                                prefetchEnabledSetting = checked
+                                                prefs.edit().putBoolean("ftp_prefetch_enabled", checked).apply()
+                                                if (checked) {
+                                                    Toast.makeText(context, "Precarga habilitada", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    Toast.makeText(context, "Precarga deshabilitada", Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = CyberDark,
+                                                checkedTrackColor = CyberTeal,
+                                                uncheckedThumbColor = Color.Gray,
+                                                uncheckedTrackColor = CyberCharcoal
+                                            )
+                                        )
+                                    }
+
+                                    // Opt 4: Remember track position on playback start
+                                    var rememberTrackPositionSetting by remember {
+                                        mutableStateOf(prefs.getBoolean("remember_track_position_enabled", true))
+                                    }
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(CyberCharcoal, RoundedCornerShape(8.dp))
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text(
+                                                "Recordar Posición al Iniciar",
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                "Si está activo, el reproductor recordará su progreso de reproducción y continuará de forma automática en la misma posición de tiempo al cargar la pista en el futuro.",
+                                                color = Color.Gray,
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                        Switch(
+                                            checked = rememberTrackPositionSetting,
+                                            onCheckedChange = { checked ->
+                                                rememberTrackPositionSetting = checked
+                                                prefs.edit().putBoolean("remember_track_position_enabled", checked).apply()
+                                                if (checked) {
+                                                    Toast.makeText(context, "Sincronizador activo: Recordando posición de tracks al iniciar", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    Toast.makeText(context, "Sincronizador inactivo: Las pistas iniciarán siempre de cero", Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = CyberDark,
+                                                checkedTrackColor = CyberTeal,
+                                                uncheckedThumbColor = Color.Gray,
+                                                uncheckedTrackColor = CyberCharcoal
+                                            )
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    // Opt 3: Last track indicator toggler
+                                    var showLastTrackSetting by remember {
+                                        mutableStateOf(prefs.getBoolean("show_last_track_indicator", true))
+                                    }
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(CyberCharcoal, RoundedCornerShape(8.dp))
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text(
+                                                "Indicador de Última Pista",
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                "Si está activo, cuando suene la última canción de la lista, la barra de progreso se volverá roja y mostrará el texto 'Última Pista'.",
+                                                color = Color.Gray,
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                        Switch(
+                                            checked = showLastTrackSetting,
+                                            onCheckedChange = { checked ->
+                                                showLastTrackSetting = checked
+                                                prefs.edit().putBoolean("show_last_track_indicator", checked).apply()
+                                                if (checked) {
+                                                    Toast.makeText(context, "Indicador de última pista activado", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    Toast.makeText(context, "Indicador de última pista desactivado", Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = CyberDark,
+                                                checkedTrackColor = CyberTeal,
+                                                uncheckedThumbColor = Color.Gray,
+                                                uncheckedTrackColor = CyberCharcoal
+                                            )
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    // Opt 5: Ultra Fast Loading (Carga Ultra Rápida)
+                                    var ultraFastLoadingSetting by remember {
+                                        mutableStateOf(prefs.getBoolean("ultra_fast_loading_enabled", false))
+                                    }
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(CyberCharcoal, RoundedCornerShape(8.dp))
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text(
+                                                "Carga Ultra Rápida ⚡",
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                "Si está activo, al reproducir archivos FTP se pre-cargarán únicamente los primeros 20 segundos para iniciar la pista de inmediato (reproducción instantánea), completando la descarga por completo en segundo plano.",
+                                                color = Color.Gray,
+                                                fontSize = 10.sp
+                                             )
+                                        }
+                                        Switch(
+                                            checked = ultraFastLoadingSetting,
+                                            onCheckedChange = { checked ->
+                                                ultraFastLoadingSetting = checked
+                                                prefs.edit().putBoolean("ultra_fast_loading_enabled", checked).apply()
+                                                if (checked) {
+                                                    Toast.makeText(context, "Carga Ultra Rápida activa ⚡", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                     Toast.makeText(context, "Carga normal activa (descarga completa)", Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = CyberDark,
+                                                checkedTrackColor = CyberTeal,
+                                                uncheckedThumbColor = Color.Gray,
+                                                uncheckedTrackColor = CyberCharcoal
+                                            )
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    // Option: Requerir dos pulsaciones para pausar
+                                    var twoTapsToPauseSetting by remember {
+                                        mutableStateOf(prefs.getBoolean("two_taps_to_pause_enabled", false))
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(CyberCharcoal, RoundedCornerShape(8.dp))
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text(
+                                                "Doble Pulsación para Pausa ⏸️",
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                "Si está activo, se requerirá presionar el botón de pausar dos veces en menos de un segundo para pausar la reproducción.",
+                                                color = Color.Gray,
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                        Switch(
+                                            checked = twoTapsToPauseSetting,
+                                            onCheckedChange = { checked ->
+                                                twoTapsToPauseSetting = checked
+                                                prefs.edit().putBoolean("two_taps_to_pause_enabled", checked).apply()
+                                                if (checked) {
+                                                    Toast.makeText(context, "Modo doble pulsación para pausa habilitado ⏸️", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    Toast.makeText(context, "Modo doble pulsación deshabilitado", Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = CyberDark,
+                                                checkedTrackColor = CyberTeal,
+                                                uncheckedThumbColor = Color.Gray,
+                                                uncheckedTrackColor = CyberCharcoal
+                                             )
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    // Opt 6: Buffer Size selector
+                                    var selectedBufferSize by remember {
+                                        mutableStateOf(prefs.getString("ultra_fast_loading_buffer_size", "1mb") ?: "1mb")
+                                    }
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(CyberCharcoal, RoundedCornerShape(8.dp))
+                                            .padding(12.dp)
+                                    ) {
+                                        Text(
+                                            "Tamaño de Búfer (Carga Ultra Rápida) 💾",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            "Determina la cantidad de datos que se descargarán inicialmente para la reproducción instantánea.",
+                                            color = Color.Gray,
+                                            fontSize = 10.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            val sizes = listOf("512k", "1mb", "3mb", "5mb", "10mb")
+                                            val labels = listOf("512 KB", "1 MB", "3 MB", "5 MB", "10 MB")
+                                            sizes.forEachIndexed { index, size ->
+                                                val isSelected = selectedBufferSize == size
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .background(
+                                                            color = if (isSelected) CyberTeal else CyberSurface,
+                                                            shape = RoundedCornerShape(6.dp)
+                                                        )
+                                                        .clickable {
+                                                            selectedBufferSize = size
+                                                            prefs.edit().putString("ultra_fast_loading_buffer_size", size).apply()
+                                                            Toast.makeText(context, "Búfer configurado en ${labels[index]}", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                        .padding(vertical = 8.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = labels[index],
+                                                        color = if (isSelected) CyberDark else Color.White,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                3 -> {
                     var cacheData by remember { mutableStateOf(getCoverCacheInfo(context)) }
+                    var libraryCoversData by remember { mutableStateOf(getScannedLibraryCoversInfo(context)) }
+                    var showCacheExplorerDialog by remember { mutableStateOf(false) }
+                    var cacheSortDirection by remember { mutableStateOf<Boolean?>(null) }
+                    var cachedFilesList by remember(showCacheExplorerDialog) {
+                        mutableStateOf(
+                            try {
+                                context.cacheDir.listFiles()?.toList() ?: emptyList()
+                            } catch (e: Exception) {
+                                emptyList()
+                            }
+                        )
+                    }
+
+                    var showConfirmClearCacheDialog by remember { mutableStateOf(false) }
+                    var showConfirmClearScannedCoversDialog by remember { mutableStateOf(false) }
+                    var showConfirmCleanOrphansDialog by remember { mutableStateOf(false) }
+                    var showConfirmClearMusicLibraryDialog by remember { mutableStateOf(false) }
+                    var isCleaning by remember { mutableStateOf(false) }
 
                     LazyColumn(
                         modifier = Modifier
@@ -2849,22 +7826,7 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
 
                                     Button(
                                         onClick = {
-                                            val liberatedBytes = cacheData.first
-                                            val freedCount = cacheData.second
-                                            val success = clearCoverCache(context)
-                                            if (success) {
-                                                cacheData = getCoverCacheInfo(context)
-                                                val liberatedMb = liberatedBytes.toFloat() / (1024 * 1024)
-                                                val detailMsg = if (liberatedBytes >= 1024 * 1024) {
-                                                    String.format("Se liberaron %.2f MB y %d carátulas.", liberatedMb, freedCount)
-                                                } else {
-                                                    "Caché liberada con éxito."
-                                                }
-                                                Toast.makeText(context, detailMsg, Toast.LENGTH_LONG).show()
-                                            } else {
-                                                Toast.makeText(context, "No se pudo vaciar la caché por completo.", Toast.LENGTH_SHORT).show()
-                                                cacheData = getCoverCacheInfo(context)
-                                            }
+                                            showConfirmClearCacheDialog = true
                                         },
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = WarningHotPink,
@@ -2893,17 +7855,6 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                     }
 
                                     Spacer(modifier = Modifier.height(12.dp))
-
-                                    var showCacheExplorerDialog by remember { mutableStateOf(false) }
-                                    var cachedFilesList by remember(showCacheExplorerDialog) {
-                                        mutableStateOf(
-                                            try {
-                                                context.cacheDir.listFiles()?.toList() ?: emptyList()
-                                            } catch (e: Exception) {
-                                                emptyList()
-                                            }
-                                        )
-                                    }
 
                                     Button(
                                         onClick = { showCacheExplorerDialog = true },
@@ -2934,6 +7885,14 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                     }
 
                                     if (showCacheExplorerDialog) {
+                                        val sortedCachedFiles = remember(cachedFilesList, cacheSortDirection) {
+                                            when (cacheSortDirection) {
+                                                true -> cachedFilesList.sortedBy { it.length() }
+                                                false -> cachedFilesList.sortedByDescending { it.length() }
+                                                null -> cachedFilesList
+                                            }
+                                        }
+
                                         AlertDialog(
                                             onDismissRequest = { showCacheExplorerDialog = false },
                                             title = {
@@ -2949,8 +7908,42 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                                         text = "Listado de archivos temporales de carátulas y fragmentos almacenados en la memoria intermedia de la aplicación:",
                                                         fontSize = 11.sp,
                                                         color = Color.Gray,
-                                                        modifier = Modifier.padding(bottom = 12.dp)
+                                                        modifier = Modifier.padding(bottom = 8.dp)
                                                     )
+
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Text("Ordenar por tamaño:", color = Color.LightGray, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                                                        
+                                                        FilterChip(
+                                                            selected = cacheSortDirection == true,
+                                                            onClick = { cacheSortDirection = if (cacheSortDirection == true) null else true },
+                                                            label = { Text("Menor", fontSize = 10.sp) },
+                                                            colors = FilterChipDefaults.filterChipColors(
+                                                                selectedContainerColor = CyberTeal,
+                                                                selectedLabelColor = CyberDark,
+                                                                containerColor = CyberCharcoal,
+                                                                labelColor = Color.LightGray
+                                                            ),
+                                                            border = null
+                                                        )
+                                                        
+                                                        FilterChip(
+                                                            selected = cacheSortDirection == false,
+                                                            onClick = { cacheSortDirection = if (cacheSortDirection == false) null else false },
+                                                            label = { Text("Mayor", fontSize = 10.sp) },
+                                                            colors = FilterChipDefaults.filterChipColors(
+                                                                selectedContainerColor = WarningHotPink,
+                                                                selectedLabelColor = Color.White,
+                                                                containerColor = CyberCharcoal,
+                                                                labelColor = Color.LightGray
+                                                            ),
+                                                            border = null
+                                                        )
+                                                    }
                                                     
                                                     if (cachedFilesList.isEmpty()) {
                                                         Box(
@@ -2964,8 +7957,8 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                                             verticalArrangement = Arrangement.spacedBy(6.dp),
                                                             modifier = Modifier.fillMaxWidth()
                                                         ) {
-                                                            items(cachedFilesList.size) { index ->
-                                                                val file = cachedFilesList[index]
+                                                            items(sortedCachedFiles.size) { index ->
+                                                                val file = sortedCachedFiles[index]
                                                                 Row(
                                                                     modifier = Modifier
                                                                         .fillMaxWidth()
@@ -3024,9 +8017,537 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                 }
                             }
                         }
+
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MusicNote,
+                                            contentDescription = null,
+                                            tint = CyberTeal,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Carátulas de Biblioteca (Scanned)",
+                                            color = Color.White,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Estas imágenes pertenecen a tus audio pistas locales y escaneadas por FTP. Se guardan de forma segura e independiente del vaciado de caché general de la aplicación, pues son esenciales para la biblioteca.",
+                                        fontSize = 11.sp,
+                                        color = Color.LightGray
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = "Espacio Ocupado:",
+                                                color = Color.Gray,
+                                                fontSize = 11.sp
+                                            )
+                                            val formattedSize = remember(libraryCoversData.first) {
+                                                val bytes = libraryCoversData.first
+                                                if (bytes >= 1024 * 1024) {
+                                                    String.format("%.2f MB", bytes.toFloat() / (1024 * 1024))
+                                                } else {
+                                                    String.format("%.1f KB", bytes.toFloat() / 1024)
+                                                }
+                                            }
+                                            Text(
+                                                text = formattedSize,
+                                                color = CyberTeal,
+                                                fontSize = 20.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            )
+                                        }
+
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Text(
+                                                text = "Carátulas Conservadas:",
+                                                color = Color.Gray,
+                                                fontSize = 11.sp
+                                            )
+                                            Text(
+                                                text = "${libraryCoversData.second}",
+                                                color = Color.White,
+                                                fontSize = 20.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(20.dp))
+
+                                    Button(
+                                        onClick = {
+                                            showConfirmClearScannedCoversDialog = true
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = WarningHotPink,
+                                            contentColor = Color.White
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        enabled = libraryCoversData.second > 0
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "Borrar Carátulas Persistentes",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        item {
+                            var showIntervalDropdown by remember { mutableStateOf(false) }
+                            val currentInterval by viewModel.unindexedCheckInterval.collectAsStateWithLifecycle()
+                            
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteSweep,
+                                            contentDescription = null,
+                                            tint = CyberTeal,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Limpieza de Datos Huérfanos e Indexación",
+                                            color = Color.White,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Configura el intervalo para el detector automático de nuevos archivos en segundo plano, o ejecuta una depuración profiláctica de pistas huérfanas vinculadas a rutas desconfiguradas o archivos borrados.",
+                                        fontSize = 11.sp,
+                                        color = Color.LightGray
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+
+                                    // Dropdown option for interval
+                                    Text(
+                                        text = "Frecuencia de Detector de Nuevos Archivos:",
+                                        color = Color.Gray,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                    Box(modifier = Modifier.fillMaxWidth()) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(CyberCharcoal, RoundedCornerShape(8.dp))
+                                                .border(1.dp, CyberTeal.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                                .clickable { showIntervalDropdown = true }
+                                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = when (currentInterval) {
+                                                    "diario" -> "Diario 📅"
+                                                    "semanal" -> "Semanal (Recomendado) ⚡"
+                                                    "mensual" -> "Mensual 🗓️"
+                                                    else -> "Semanal (Recomendado) ⚡"
+                                                },
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Icon(
+                                                imageVector = Icons.Default.ArrowDropDown,
+                                                contentDescription = "Desplegar",
+                                                tint = CyberTeal
+                                            )
+                                        }
+
+                                        DropdownMenu(
+                                            expanded = showIntervalDropdown,
+                                            onDismissRequest = { showIntervalDropdown = false },
+                                            modifier = Modifier
+                                                .background(CyberSurface)
+                                                .border(1.dp, CyberTeal.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                        ) {
+                                            DropdownMenuItem(
+                                                text = { Text("Diario 📅", color = Color.White, fontSize = 12.sp) },
+                                                onClick = {
+                                                    viewModel.setUnindexedCheckInterval("diario")
+                                                    showIntervalDropdown = false
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Semanal ⚡", color = Color.White, fontSize = 12.sp) },
+                                                onClick = {
+                                                    viewModel.setUnindexedCheckInterval("semanal")
+                                                    showIntervalDropdown = false
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Mensual 🗓️", color = Color.White, fontSize = 12.sp) },
+                                                onClick = {
+                                                    viewModel.setUnindexedCheckInterval("mensual")
+                                                    showIntervalDropdown = false
+                                                }
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(20.dp))
+
+                                    // Cleanup Button
+                                    Button(
+                                        onClick = {
+                                            showConfirmCleanOrphansDialog = true
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = CyberTeal,
+                                            contentColor = CyberDark
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        enabled = !isCleaning
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
+                                        ) {
+                                            if (isCleaning) {
+                                                CircularProgressIndicator(
+                                                    color = CyberDark,
+                                                    strokeWidth = 2.dp,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = "Depurando datos...",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            } else {
+                                                Icon(
+                                                    imageVector = Icons.Default.DeleteSweep,
+                                                    contentDescription = "Limpiar",
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = CyberDark
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "Limpiar Datos Huérfanos e Indexar",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    // Clear Library Button (User Request)
+                                    Button(
+                                        onClick = {
+                                            showConfirmClearMusicLibraryDialog = true
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = WarningHotPink,
+                                            contentColor = Color.White
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Borrar Bibliotecas",
+                                                modifier = Modifier.size(16.dp),
+                                                tint = Color.White
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "Borrar Bibliotecas de Música",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (showConfirmClearCacheDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showConfirmClearCacheDialog = false },
+                            title = {
+                                Text(
+                                    text = "Confirmar eliminación de caché",
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            },
+                            text = {
+                                Text(
+                                    text = "¿Estás seguro de que deseas borrar la caché general de carátulas? Esto liberará espacio pero las imágenes tendrán que re-descargarse al navegar.",
+                                    color = Color.LightGray,
+                                    fontSize = 13.sp
+                                )
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        showConfirmClearCacheDialog = false
+                                        val liberatedBytes = cacheData.first
+                                        val freedCount = cacheData.second
+                                        val success = clearCoverCache(context)
+                                        if (success) {
+                                            cacheData = getCoverCacheInfo(context)
+                                            val liberatedMb = liberatedBytes.toFloat() / (1024 * 1024)
+                                            val detailMsg = if (liberatedBytes >= 1024 * 1024) {
+                                                String.format("Se liberaron %.2f MB y %d carátulas.", liberatedMb, freedCount)
+                                            } else {
+                                                "Caché liberada con éxito."
+                                            }
+                                            Toast.makeText(context, detailMsg, Toast.LENGTH_LONG).show()
+                                        } else {
+                                            Toast.makeText(context, "No se pudo vaciar la caché por completo.", Toast.LENGTH_SHORT).show()
+                                        }
+                                        cacheData = getCoverCacheInfo(context)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White)
+                                ) {
+                                    Text("Sí, Borrar", fontWeight = FontWeight.Bold)
+                                }
+                            },
+                            dismissButton = {
+                                OutlinedButton(
+                                    onClick = { showConfirmClearCacheDialog = false },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    border = BorderStroke(1.dp, Color.Gray)
+                                ) {
+                                    Text("Cancelar")
+                                }
+                            },
+                            containerColor = CyberSurface,
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                    }
+
+                    if (showConfirmClearScannedCoversDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showConfirmClearScannedCoversDialog = false },
+                            title = {
+                                Text(
+                                    text = "Confirmar eliminación de carátulas",
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            },
+                            text = {
+                                Text(
+                                    text = "¿Estás seguro de que deseas borrar de forma permanente las carátulas persistentes de tu biblioteca? Tendrán que ser re-extraídas del almacenamiento en el próximo escaneado progresivo.",
+                                    color = Color.LightGray,
+                                    fontSize = 13.sp
+                                )
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        showConfirmClearScannedCoversDialog = false
+                                        val liberatedBytes = libraryCoversData.first
+                                        val freedCount = libraryCoversData.second
+                                        val success = clearScannedLibraryCovers(context)
+                                        if (success) {
+                                            libraryCoversData = getScannedLibraryCoversInfo(context)
+                                            val liberatedMb = liberatedBytes.toFloat() / (1024 * 1024)
+                                            val detailMsg = if (liberatedBytes >= 1024 * 1024) {
+                                                String.format("Se eliminaron %.2f MB de carátulas persistentes (%d archivos).", liberatedMb, freedCount)
+                                            } else {
+                                                "Biblioteca de carátulas vaciada con éxito."
+                                            }
+                                            Toast.makeText(context, detailMsg, Toast.LENGTH_LONG).show()
+                                        } else {
+                                            Toast.makeText(context, "No se pudo realizar la limpieza completa.", Toast.LENGTH_SHORT).show()
+                                        }
+                                        libraryCoversData = getScannedLibraryCoversInfo(context)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White)
+                                ) {
+                                    Text("Sí, Borrar", fontWeight = FontWeight.Bold)
+                                }
+                            },
+                            dismissButton = {
+                                OutlinedButton(
+                                    onClick = { showConfirmClearScannedCoversDialog = false },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    border = BorderStroke(1.dp, Color.Gray)
+                                ) {
+                                    Text("Cancelar")
+                                }
+                            },
+                            containerColor = CyberSurface,
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                    }
+
+                    if (showConfirmCleanOrphansDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showConfirmCleanOrphansDialog = false },
+                            title = {
+                                Text(
+                                    text = "Confirmar depuración de biblioteca",
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            },
+                            text = {
+                                Text(
+                                    text = "¿Estás seguro de que deseas depurar pistas inactivas y archivos temporales huérfanos de la base de datos?",
+                                    color = Color.LightGray,
+                                    fontSize = 13.sp
+                                )
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        showConfirmCleanOrphansDialog = false
+                                        isCleaning = true
+                                        viewModel.cleanOrphanedDataAndCache(context) { deletedDb, deletedCache ->
+                                            isCleaning = false
+                                            cacheData = getCoverCacheInfo(context)
+                                            libraryCoversData = getScannedLibraryCoversInfo(context)
+                                            Toast.makeText(
+                                                context,
+                                                "¡Depuración finalizada! Se purgaron $deletedDb pistas huérfanas en base de datos y se liberaron $deletedCache archivos temporales.",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark)
+                                ) {
+                                    Text("Sí, Depurar", fontWeight = FontWeight.Bold)
+                                }
+                            },
+                            dismissButton = {
+                                OutlinedButton(
+                                    onClick = { showConfirmCleanOrphansDialog = false },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    border = BorderStroke(1.dp, Color.Gray)
+                                ) {
+                                    Text("Cancelar")
+                                }
+                            },
+                            containerColor = CyberSurface,
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                    }
+
+                    if (showConfirmClearMusicLibraryDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showConfirmClearMusicLibraryDialog = false },
+                            title = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = WarningHotPink,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "ADVERTENCIA CRÍTICA",
+                                        color = WarningHotPink,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            },
+                            text = {
+                                Text(
+                                    text = "¿Estás completamente seguro de que deseas VACIAR toda la biblioteca de música de la base de datos local? Esta acción restablecerá el catálogo a 0 pistas. Esto no afecta a tus archivos físicos locales ni a los archivos remotos en el servidor FTP.",
+                                    color = Color.LightGray,
+                                    fontSize = 13.sp
+                                )
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        showConfirmClearMusicLibraryDialog = false
+                                        viewModel.clearMusicLibrary { count ->
+                                            cacheData = getCoverCacheInfo(context)
+                                            libraryCoversData = getScannedLibraryCoversInfo(context)
+                                            Toast.makeText(
+                                                context,
+                                                "Se vació la biblioteca con éxito. Se eliminaron $count pistas indexadas.",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White)
+                                ) {
+                                    Text("Sí, Vaciar Biblioteca", fontWeight = FontWeight.Bold)
+                                }
+                            },
+                            dismissButton = {
+                                OutlinedButton(
+                                    onClick = { showConfirmClearMusicLibraryDialog = false },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    border = BorderStroke(1.dp, Color.Gray)
+                                ) {
+                                    Text("Cancelar")
+                                }
+                            },
+                            containerColor = CyberSurface,
+                            shape = RoundedCornerShape(16.dp)
+                        )
                     }
                 }
-                3 -> {
+                4 -> {
                     // Update check state dynamically of permissions
                     var hasIgnoreBattery by remember {
                         mutableStateOf(
@@ -3052,6 +8573,11 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                             }
                         )
                     }
+                    var hasLocation by remember {
+                        mutableStateOf(
+                            androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                        )
+                    }
 
                     val notificationLauncher = rememberLauncherForActivityResult(
                         contract = ActivityResultContracts.RequestPermission()
@@ -3071,6 +8597,15 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                         }
                     }
 
+                    val locationLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.RequestPermission()
+                    ) { isGranted ->
+                        hasLocation = isGranted
+                        if (isGranted) {
+                            Toast.makeText(context, "¡Permiso de ubicación para SSID concedido!", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+
                     // A handler to refresh states when resuming the app (coming back from phone setting menus)
                     DisposableEffect(Unit) {
                         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -3087,6 +8622,7 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                 } else {
                                     androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED
                                 }
+                                hasLocation = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
                             }
                         }
                         val lifecycle = (context as? androidx.activity.ComponentActivity)?.lifecycle
@@ -3342,10 +8878,374 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                 }
                             }
                         }
+
+                        // Card 4: Ubicación para SSID de Wi-Fi de Casa
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                            Icon(
+                                                imageVector = Icons.Default.LocationOn,
+                                                contentDescription = null,
+                                                tint = if (hasLocation) CyberTeal else WarningHotPink,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column {
+                                                Text("Identificación de Wi-Fi SSID 📍", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                                Text(
+                                                    text = if (hasLocation) "Habilitado (Detecta Wi-Fi de casa)" else "Manual (Usa IP del perfil / IP local)",
+                                                    color = if (hasLocation) CyberTeal else WarningHotPink,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                        Icon(
+                                            imageVector = if (hasLocation) Icons.Default.CheckCircle else Icons.Default.Error,
+                                            contentDescription = null,
+                                            tint = if (hasLocation) CyberTeal else WarningHotPink
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Text(
+                                        text = "Permite identificar automáticamente si estás conectado al Wi-Fi de casa para usar la IP local. Si no lo concedes, no te preocupes: el sistema recurrirá a un test de reachability socket ultra rápido a la IP.",
+                                        fontSize = 11.sp,
+                                        color = Color.LightGray
+                                    )
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    
+                                    Button(
+                                        onClick = {
+                                            locationLauncher.launch(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (hasLocation) CyberCharcoal else CyberTeal,
+                                            contentColor = if (hasLocation) Color.White else CyberDark
+                                        ),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text(
+                                            text = if (hasLocation) "UBICACIÓN AUTORIZADA ✅" else "CONCEDER PERMISO DE UBICACIÓN (SSID)",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-                4 -> {
-                    // TAB 5: MANUAL DE USO INTERACTIVO
+                5 -> {
+                    // TAB 5: IDENTIFICAR IA, CARÁTULAS Y METADATOS
+                    var queryText by remember { mutableStateOf("") }
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.MusicNote, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(24.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Identificador y Carátulas Inteligentes ✨", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Para que tus archivos multimedia de red local o FTP muestren sus portadas de forma nativa en Pozo Media Hub, puedes utilizar estas fantásticas herramientas y funciones automáticas.",
+                                        fontSize = 11.sp,
+                                        color = Color.LightGray,
+                                        lineHeight = 15.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        // Alternativa 1: Autotag
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("🏷️ Autotag (Google Play)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberTeal.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("Súper Recomendado", color = CyberTeal, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    Text(
+                                        text = "Escanea de forma inteligente todos tus archivos de audio descargados, reconoce la pista mediante huella acústica, realiza búsquedas en amplias bases de datos en línea y descarga e integra la carátula oficial de manera 100% automática directamente dentro de los metadatos del archivo de música (tag ID3), dejándola de forma permanente en el archivo.",
+                                        color = Color.LightGray,
+                                        fontSize = 11.sp,
+                                        lineHeight = 15.sp
+                                    )
+                                    Button(
+                                        onClick = {
+                                            try {
+                                                val intent = android.content.Intent(
+                                                    android.content.Intent.ACTION_VIEW,
+                                                    android.net.Uri.parse("market://details?id=com.fillobuster.autotag")
+                                                )
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                try {
+                                                    val intent = android.content.Intent(
+                                                        android.content.Intent.ACTION_VIEW,
+                                                        android.net.Uri.parse("https://play.google.com/store/apps/details?id=com.fillobuster.autotag")
+                                                    )
+                                                    context.startActivity(intent)
+                                                } catch (ex: Exception) {
+                                                    Toast.makeText(context, "No se pudo abrir Play Store", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal, contentColor = Color.White),
+                                        shape = RoundedCornerShape(6.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("INSTALAR AUTOTAG EN GOOGLE PLAY 📥", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Alternativa 2: Musixmatch
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("🎤 Musixmatch Lyrics & Cover", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        Box(
+                                            modifier = Modifier
+                                                .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("Letras & UI", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    Text(
+                                        text = "Muy popular a nivel global para emparejar y visualizar letras de canciones sincronizadas. Adicionalmente, escanea de forma proactiva la biblioteca musical de tu teléfono celular, identifica el origen oficial de la pista y actualiza de manera remota su portada y metadatos correctos.",
+                                        color = Color.LightGray,
+                                        fontSize = 11.sp,
+                                        lineHeight = 15.sp
+                                    )
+                                    Button(
+                                        onClick = {
+                                            try {
+                                                val intent = android.content.Intent(
+                                                    android.content.Intent.ACTION_VIEW,
+                                                    android.net.Uri.parse("market://details?id=com.musixmatch.android.lyrify")
+                                                )
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                try {
+                                                    val intent = android.content.Intent(
+                                                        android.content.Intent.ACTION_VIEW,
+                                                        android.net.Uri.parse("https://play.google.com/store/apps/details?id=com.musixmatch.android.lyrify")
+                                                    )
+                                                    context.startActivity(intent)
+                                                } catch (ex: Exception) {
+                                                    Toast.makeText(context, "No se pudo abrir Play Store", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal, contentColor = Color.White),
+                                        shape = RoundedCornerShape(6.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("INSTALAR MUSIXMATCH EN GOOGLE PLAY 📥", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Alternativa 3: Rodea para buscar / Circle to Search
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("🔍 Rodea para Buscar (Circle to Search)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberTeal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("IA INTEGRADA", color = CyberDark, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    Text(
+                                        text = "Si cuentas con un teléfono con la IA de Google inteligente integrada en el sistema, es increíblemente sencillo. Mientras suena cualquier canción en YouTube, Instagram, Tiktok o el reproductor de fondo:\n\n1. Mantén presionada unos segundos la barra de navegación de tu móvil (o el botón Home central).\n2. Selecciona inmediatamente la opción de 'Buscar canción' 🎵 (un icono de nota musical junto al buscador de IA).\n3. El asistente escuchará de fondo y te mostrará la portada oficial, nombre y enlaces del tema en un instante.",
+                                        color = Color.LightGray,
+                                        fontSize = 11.sp,
+                                        lineHeight = 15.sp
+                                    )
+                                    
+                                    var showDetailsDialog by remember { mutableStateOf(false) }
+                                    if (showDetailsDialog) {
+                                        AlertDialog(
+                                            onDismissRequest = { showDetailsDialog = false },
+                                            title = { Text("¿Cómo funciona Circle to Search? 🧠", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+                                            text = {
+                                                Text(
+                                                    text = "Esta nueva función de Google procesa el audio del sistema e identifica canciones silbando, tarareando o capturando directamente el espectro del sonido. Es la forma más rápida de obtener las portadas oficiales, que luego puedes buscar e incrustar con Autotag para que queden incorporadas permanentemente.",
+                                                    color = Color.LightGray,
+                                                    fontSize = 12.sp,
+                                                    lineHeight = 16.sp
+                                                )
+                                            },
+                                            confirmButton = {
+                                                TextButton(onClick = { showDetailsDialog = false }) {
+                                                    Text("ENTENDIDO", color = CyberTeal)
+                                                }
+                                            },
+                                            containerColor = CyberDark
+                                        )
+                                    }
+                                    
+                                    Button(
+                                        onClick = { showDetailsDialog = true },
+                                        colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal, contentColor = Color.White),
+                                        shape = RoundedCornerShape(6.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("GUÍA ADICIONAL DE USO DE LA IA 💡", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Buscador Directo y Herramientas Web
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("🔎 Buscador Manual de Portadas & Letras", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        text = "¿Tienes una canción sin carátula en tu dispositivo celular? Escribe su nombre o un fragmento de la letra abajo para buscar la información oficial directamente en la Web:",
+                                        color = Color.LightGray,
+                                        fontSize = 11.sp,
+                                        lineHeight = 15.sp
+                                    )
+                                    
+                                    OutlinedTextField(
+                                        value = queryText,
+                                        onValueChange = { queryText = it },
+                                        placeholder = { Text("Ej: Michael Jackson Billie Jean Letra", color = Color.Gray, fontSize = 11.sp) },
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = CyberTeal,
+                                            unfocusedBorderColor = CyberCharcoal,
+                                            focusedLabelColor = CyberTeal,
+                                            focusedTextColor = Color.White,
+                                            unfocusedTextColor = Color.White
+                                        ),
+                                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp),
+                                        modifier = Modifier.fillMaxWidth()
+                                        .testTag("search_cover_art_lyrics")
+                                    )
+                                    
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Button(
+                                            onClick = {
+                                                if (queryText.isNotBlank()) {
+                                                    try {
+                                                        val webIntent = android.content.Intent(
+                                                            android.content.Intent.ACTION_VIEW,
+                                                            android.net.Uri.parse("https://www.google.com/search?q=" + java.net.URLEncoder.encode(queryText.trim() + " carátula album portada", "UTF-8"))
+                                                        )
+                                                        context.startActivity(webIntent)
+                                                    } catch (e: Exception) {
+                                                        Toast.makeText(context, "No se pudo abrir el navegador", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                } else {
+                                                    Toast.makeText(context, "Introduce el título de la canción", Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark),
+                                            shape = RoundedCornerShape(6.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("CONSEGUIR EN GOOGLE 🔍", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+
+                                        Button(
+                                            onClick = {
+                                                if (queryText.isNotBlank()) {
+                                                    try {
+                                                        val webIntent = android.content.Intent(
+                                                            android.content.Intent.ACTION_VIEW,
+                                                            android.net.Uri.parse("https://www.google.com/search?q=" + java.net.URLEncoder.encode(queryText.trim() + " site:lyrics.com OR site:musixmatch.com", "UTF-8"))
+                                                        )
+                                                        context.startActivity(webIntent)
+                                                    } catch (e: Exception) {
+                                                        Toast.makeText(context, "No se pudo abrir el navegador", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                } else {
+                                                    Toast.makeText(context, "Introduce el título o letra", Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal, contentColor = Color.White),
+                                            shape = RoundedCornerShape(6.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("BUSCAR LETRAS 🎤", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                6 -> {
+                    // TAB 6: MANUAL DE USO INTERACTIVO
                     val categories = listOf(
                         Triple("🔌 Servidores FTP y Red Local", "Aprende a conectar y sincronizar tu propia biblioteca de música en la nube", 
                             "1. Ve a la pestaña 'FTP CONECTAR' e introduce la dirección IP o dominio de tu servidor, junto con el usuario, contraseña y puerto (por defecto es 21).\n\n" +
@@ -3363,10 +9263,15 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                             "3. Puedes configurar libremente la ruta física de destino de las grabaciones desde la pestaña 'GRABACIONES' para guardarlas en una memoria externa SD o directorio específico."
                         ),
                         Triple("📍 Podmarks (Marcadores de Audio Interactivos)", "Marca y salta a los mejores momentos de tus grabaciones o streamings",
-                            "1. Si escuchas un fragmento espectacular de audio, pincha en 'CREAR PODMARK' en la interfaz del reproductor.\n\n" +
-                            "2. Introducirá una marca física indexada con la fecha actual y la posición de segundo exacta.\n\n" +
-                            "3. En la barra de reproducción (slider) aparecerán unos pines físicos interactivos (puntos decorados con pines) que representan tus marcas.\n\n" +
-                            "4. Clicando sobre el pin o en tu panel de 'MIS PODMARKS GUARDADOS' del reproductor, el cabezal de audio saltará instantáneamente al momento perfecto guardado."
+                            "1. Si escuchas un fragmento espectacular de audio, pincha en el icono de Marcador/Podmark 📍 situado justo al lado del corazón de favoritos en cualquier reproductor.\n\n" +
+                            "2. Introducirá una marca física indexada con la fecha actual y la posición exacta de tiempo.\n\n" +
+                            "3. En la barra de reproducción (slider) aparecerán unos pines físicos interactivos que representan tus marcas.\n\n" +
+                            "4. Ahora puedes blindar tus marcas de tiempo con un candado individual 🔒 persistente para evitar borrados accidentales. Además, cualquier intento de eliminación voluntaria de marcas requerirá una confirmación explícita."
+                        ),
+                        Triple("🔒 Seguridad y Escaneo Sincronizado", "Evita pérdidas de grabaciones con candados y controla la velocidad de indexado",
+                            "1. Cuentas con un indicador de modo de escaneo (Rápido vs Profundo) en la sección 'RADIOS & RUTAS'. El modo rápido indexa nombres al vuelo, mientras que el modo profundo analiza metadatos.\n\n" +
+                            "2. Si inicias un escaneo profundo por error o se vuelve pesado, ahora dispones de un botón rojo de parada inmediata ('PARAR') al lado del progreso para cancelar el escaneo de inmediato.\n\n" +
+                            "3. Cuentas con candados de seguridad 🔒 tanto para tus grabaciones de podcasts generadas en MP3 como para los Podmarks individuales creados. Al activarlos, tus pistas o marcas favoritas quedarán bloqueadas de manera permanente frente a solicitudes accidentales de eliminación."
                         ),
                         Triple("🧹 Optimización de Caché y Memoria", "Mantén el rendimiento óptimo y borra datos residuales",
                             "1. La radio por internet y la música FTP descargan flujos constantes en un búfer temporal de memoria para evitar interrupciones.\n\n" +
@@ -3377,6 +9282,62 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                             "1. Por defecto, tu sistema operativo Android ahorra energía cerrando procesos inactivos cuando la pantalla se apaga o estás usando otras apps.\n\n" +
                             "2. Dirígete a la pestaña de 'PERMISOS' para verificar el estado de optimización.\n\n" +
                             "3. Al conceder el permiso 'Batería sin límites' (ignorar optimización de batería), garantizas que el flujo de streaming o radio continúe permanente en segundo plano."
+                        ),
+                        Triple("📶 Red Dinámica Inteligente y Precarga Ftp (Novedad v4.0)", "Traspasa redes sin cortes y disfruta de tiempos de carga de audio cero",
+                            "1. El núcleo de Pozo Media Hub incluye un sistema exclusivo de autoreconexión router dual Wi-Fi ⇄ WAN/DNS. Registra un callback del sistema que detecta al instante si sales de casa (perdiendo la red Wi-Fi local) o si entras, reajustando la ruta FTP o DNS asignada y reconectando la sesión en milisegundos sin intervención.\n\n" +
+                            "2. Al reproducir cualquier canción dentro de un directorio remoto FTP, el sistema autogenera una cola de reproducción ordenada con los archivos de audio del directorio. Al finalizar una pista, saltará automáticamente a la siguiente de la carpeta.\n\n" +
+                            "3. Para una experiencia ininterrumpida y libre de lags, la verificación de conexión del servidor FTP remoto se inicia cuando faltan exactamente 40 segundos, y la precarga automática a un búfer temporal se ejecuta a falta de 30 segundos. El cambio de pista se realiza de manera instantánea y transparente."
+                        ),
+                        Triple("🗑️ Papelera de Reciclaje y Recuperación (Versión 5.0)", "Recupera tus grabaciones, podmarks y favoritos borrados accidentalmente",
+                            "1. Encontrarás la nueva opción 'PAPELERA DE RECICLAJE' dentro de la pestaña de Ajustes de la aplicación.\n\n" +
+                            "2. Todos los archivos MP3 de grabaciones eliminadas, los Podmarks borrados y las pistas de música quitadas de favoritos van directamente a esta zona de seguridad durante 30 días.\n\n" +
+                            "3. Puedes pulsar un botón para 'Restaurar' y devolver el archivo a su carpeta original o bien pinchar en 'Eliminar Permanente' si quieres liberar espacio físico al instante.\n\n" +
+                            "4. Para mantener tu memoria optimizada y libre de basura residual, puedes activar el 'Borrado Automático', el cual purgará por completo los ítems que lleven guardados más de 30 días, tal como ocurre en tu computadora de escritorio."
+                        ),
+                        Triple("🎛️ Personalización y Ajustes de UX (Versión 5.1)", "Personaliza el aspecto visual a tu gusto y maneja el temporizador de apagado reubicado",
+                            "1. Dispones de un nuevo 'Tema Rojo Fuego' y de la opción de 'Color Personalizado'. Al seleccionar el color personalizado, se despliega una barra para calibrar con precisión el tono/matiz (Hue 0-360) neón que más te guste.\n\n" +
+                            "2. Los botones 'Ver Lista' y 'Recientes' dentro del reproductor se han optimizado volviendo a sus 40dp de tamaño idóneo.\n\n" +
+                            "3. El temporizador de apagado ⏲️ se ha reubicado discretamente al final del Panel de Control, justo arriba de la opción 'Cerrar de Aplicación' para no interferir en la lectura del reproductor principal.\n\n" +
+                            "4. Ahora los nombres de las pistas se visualizan por completo en la pantalla, evitando abreviaturas forzadas."
+                        ),
+                        Triple("⏱️ Sincronizador de Audio y Ahorro Inteligente (Versión 5.2)", "Recordador de posición de pista, icono dinámico en reproductor y autodesconexión FTP de 5 minutos",
+                            "1. Tienes a tu disposición la opción 'Recordar Posición al Iniciar' en Opciones. Al activarla, el reproductor recordará exactamente dónde te quedaste en cada pista para reanudar desde ese segundo al volver a cargarla.\n\n" +
+                            "2. Se ha colocado un icono dinámico de Historial/Sincronización ⏱️ en la misma línea de Podmarks y Favoritos. Al tocarlo, un aviso flotante te informará del estado de la sincronización de avance.\n\n" +
+                            "3. Para conservar batería y evitar el consumo de datos innecesario, se ha implementado la autodesconexión de FTP tras 5 minutos sin reproducción en la app."
+                        ),
+                        Triple("📱 Cuadrícula de Radios y Filtros Inteligentes de Carga (Versión 6.0)", "Interruptor de cuadrícula (Grid) en radios, transiciones FTP silenciosas y estabilización de conexión FTP",
+                            "1. Hemos implementado el nuevo interruptor de Vista en Cuadrícula (Grid View) 📱 en tu sección de Radios Online, permitiéndote cambiar al vuelo con un solo clic entre listado vertical tradicional y tarjetas en cuadrícula de gran formato visual.\n\n" +
+                            "2. Para máxima comodidad y evitar ventanas emergentes molestas, la app ahora oculta los diálogos invasivos de carga al sintonizar radioemisoras, dejando exclusivamente que actúe el texto nativo 'Cargando búfer'.\n\n" +
+                            "3. El diálogo inteligente de transición solo aparecerá si sintonizas una pista remota FTP mientras la radio en directo está sonando, garantizando el control del progreso.\n\n" +
+                            "4. Se ha estabilizado por completo el flujo de estado de la conexión FTP durante los escaneos de metadatos profundos para evitar desconexiones falsas y mantener la UI siempre limpia, estable y fluida."
+                        ),
+                        Triple("🎛️ Mayor Facilidad Táctil y Regreso a Vivo (Versión 6.5)", "Barras de progreso deslizantes ensanchadas en reproductor, botón interactivo directo en widget y barra del widget de 8dp",
+                            "1. Se han hecho más anchas las barras de reproducción (deslizadores) de toda la aplicación (tanto de pistas de audio convencionales como en Timeshift de radioemisoras) para permitir arrastrarlas y retroceder o avanzar cómodamente con la punta del dedo, incrementando su respuesta táctil.\n\n" +
+                            "2. Al sintonizar radioemisoras en Timeshift, se muestra dinámicamente el botón '🔴 DIRECTO' en el widget de la pantalla de inicio, posibilitando regresar con un solo toque al en vivo y directo en tiempo real.\n\n" +
+                            "3. El widget estrena una barra de progreso más gruesa (8dp) con tonos de colores neon que facilita la lectura veloz de la posición actual de audio.\n\n" +
+                            "4. Los nombres del medio de origen y procedencia ('Radio Online (Timeshift) 📻', 'Servidor FTP (Local) 🏠', 'Servidor FTP (Remoto) 🌐') respetan de forma estricta los estándares del reproductor de la app."
+                        ),
+                        Triple("🎵 Mini-Reproductor y Reproducción Unificada de Carpetas (Versión 6.1)", "Barra de reproducción sobre pestañas, reproducción de carpetas completas y tarjeta FTP ajustada",
+                            "1. Tienes un nuevo Mini-Reproductor anclado fijamente justo encima del menú de abajo. Se mueve automáticamente mostrando una línea de progreso iluminada que evoluciona en sintonía con la música, y al pulsarlo viajas de inmediato al reproductor completo.\n\n" +
+                            "2. Se incorporó una función de reproducción unificada de carpetas: ahora puedes reproducir toda una carpeta de audio del almacenamiento local u omitir metadatos FTP largos pulsando un único botón 'REPRODUCIR CARPETA ENTERA'.\n\n" +
+                            "3. Optimizamos la tarjeta de estado de conexión de perfil de tus servidores para que se mantenga ágil y compacta sin descajar textualmente la visual si utilizas IPs, DNS o dominios sumamente extensos."
+                        ),
+                        Triple("✨ Reescaneo No Destructivo, Alertas & Navegación Profunda (Versión 7.9)", "Se evitan pérdidas de biblioteca si hay caídas de red, se omiten archivos ya escaneados, navegación bajo escaneo profundo de metadatos bajo demanda y alertas de indexación",
+                            "1. El nuevo mecanismo de reescaneo no destructivo almacena la base de datos de forma segura, impidiendo que una falla puntual de red o caída de servidor FTP vacíe la biblioteca indexada.\n\n" +
+                            "2. Se optimizó el motor de escaneo reduciendo en un 95% el tiempo de espera: ahora verifica automáticamente qué canciones ya han sido mapeadas y las omite, procesando exclusivamente las pistas nuevas.\n\n" +
+                            "3. Se añade escaneo profundo por demanda: si utilizas el escaneo rápido y estás explorando el explorador FTP, al entrar en una carpeta el reproductor va analizando en segundo plano los metadatos de esa carpeta y actualizándolos en la base de datos.\n\n" +
+                            "4. Alertas de archivos pendientes: un servicio en segundo plano detecta autónomamente si tienes nuevos archivos de música sin indexar e ilumina un aviso de alerta neón ⚡ en el explorador de archivos."
+                        ),
+                        Triple("🚀 Estabilidad Extrema, Auto-Reconexión Anti-Cortes y Carpeta Unificada (Versión 7.1)", "Auto-reconexión automática tras 2 segundos si el streaming falla, doble pulsación opcional para pausar la radio y directorio único Grabaciones",
+                            "1. El nuevo mecanismo de Auto-Reconexión Inteligente de 2 segundos monitoriza silenciosamente la radio online en directo para reconectar de inmediato ante cualquier corte en tu red si no se detectase una pausa voluntaria.\n\n" +
+                            "2. Se añade una Directiva de Seguridad en los Ajustes que requiere una doble pulsación obligatoria del botón pausar/reproducir para detener la producción de la radio, garantizando cero accidentes.\n\n" +
+                            "3. Se reorganiza el Hub en un único directorio principal 'Grabaciones' con subcarpetas 'radio' de directos y 'recortes' de clips recargándose automáticamente sin provocar paradas o bloqueos."
+                        ),
+                        Triple("✂️ Ajuste Fino, Marquee de Textos y WakeLock (Versión 7.0)", "Ajustes rápidos de marcas de recorte por milisegundos, auto-scrolling marquesina en títulos y bloqueo WakeLock",
+                            "1. El nuevo Panel de Ajuste Fino de Recorte permite mover las marcas con precisión milimétrica usando botones interactivos (-1s, -100ms, +100ms, +1s) y visualizar los valores exactos en milisegundos durante la reproducción.\n\n" +
+                            "2. Se añade marquesina dinámica (marquee text) automática en títulos del reproductor principal, listas del explorador y en los widgets de la pantalla de inicio para que los nombres de canciones o grabaciones muy largos fluyan con animación.\n\n" +
+                            "3. Se integraron nuevos bloqueos de control de energía (WakeLock de Android) para prevenir interrupciones o apagados automáticos accidentales mientras escuchas radiodifusión en directo.\n\n" +
+                            "4. El buscador de grabaciones se unificó en una línea más esbelta con lupa integrada y soporte para ver la dirección o ruta absoluta de los archivos."
                         )
                     )
 
@@ -3505,8 +9466,8 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                         }
                     }
                 }
-                5 -> {
-                    // TAB 5: LISTADO DE NOVEDADES Y CAMBIOS DE LA VERSIÓN v1.1
+                7 -> {
+                    // TAB 7: LISTADO DE NOVEDADES Y CAMBIOS HISTÓRICOS (CHangelog v2.0 completo)
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxSize()
@@ -3523,11 +9484,11 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(Icons.Default.Info, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(24.dp))
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Historial de Cambios - Versión 1.1 📋", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                        Text("Historial de Cambios Completo 📋", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                     }
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(
-                                        text = "¡Bienvenido a la actualización 1.1 de Pozo Media Hub! A continuación se detallan las mejoras e innovaciones introducidas en esta versión.",
+                                        text = "¡Bienvenido a la versión mayor v4.0 de Pozo Media Hub! Consulta la evolución y todas las innovaciones aplicadas desde la creación inicial del ecosistema.",
                                         fontSize = 11.sp,
                                         color = Color.LightGray
                                     )
@@ -3535,6 +9496,1136 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                             }
                         }
 
+                        // Version 7.9 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Stars, contentDescription = null, tint = SoftTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Versión 7.9 (Reescaneo Inteligente, Alertas & Navegación Profunda)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberTeal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("ACTUAL 🚀", color = CyberDark, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Reescaneo No Destructivo Anti-Fallos de Red 📂🌐", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Si un servidor FTP o ruta remota falla por desconexión de red o caída del host, el reescaneo no borrará tu biblioteca actual. Se conservan las pistas previamente indexadas de forma segura.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Evitar Re-Procesamiento de Archivos Indexados ⚡🔄", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Durante las indexaciones, el escáner verifica qué archivos ya han sido procesados y omite su descarga de metadatos, agilizando el proceso en más de un 95%.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Escaneo y Metadatos en Caliente por Navegación 📂🔍", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Si importas tus carpetas en modo rápido, al explorar cualquier directorio FTP en tiempo real se ejecutará un escaneo profundo en segundo plano que extrae la duración y carátulas de la carpeta actual.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Check Periódico y Alertas de Archivos Nuevos 🔔⚡", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Lleva un rastreo automático en segundo plano que te avisará instantáneamente en el panel de control si se detectan archivos nuevos sin indexar en tus rutas.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Version 7.1 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Star, contentDescription = null, tint = SoftTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Versión 7.1 (Estabilidad Extrema & Automatización)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberCharcoal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("HISTÓRICO 📜", color = Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Auto-Reconexión Anti-Cortes Inteligente (2s) 🔄📡", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Monitoriza la radio de forma silenciosa para reconectar automáticamente tras 2 segundos si el streaming se interrumpe y no hay intención de pausa por el usuario.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Doble Pulsación para Pausa de Radio ⏸️⚙️", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Previene toques incidentales requiriendo dos toques seguidos al botón de reproducir/pausar para pausar la radio en directo, configurable desde los Ajustes.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Carpeta 'Grabaciones' Unificada 📁🛡️", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Crea una única estructura en almacenamiento principal con directorios específicos 'radio' y 'recortes' autogestionados en segundo plano para evitar pérdidas o bloqueos.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Ajustes Precisos de Recorte (0.5s, 1s) ⏱️✂️", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Optimiza la consola del reproductor y la añade al modal de guardado para que finalices tus recortes en pocos clics con resolución exacta.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Sincronización del Amplificador (Booster Real) 🎧🔊", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Alineado el control nativo millibel +100% real (hasta 6000 mB) con botones de acción rápida, manteniendo el botón iluminado y en perfecto funcionamiento.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Version 7.0 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Star, contentDescription = null, tint = SoftTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Versión 7.0 (Marquee, Ajuste fino y Estabilidad)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberCharcoal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("HISTÓRICO 📜", color = Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Ajuste Fino de Marcas de Recorte ⏱️✂️", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Se agregó una consola interactiva de ajuste fino con botones rápidos (-1s, -100ms, +100ms, +1s) para cambiar con total precisión las marcas de corte en milisegundos durante la reproducción.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Texto en Movimiento (Modo Marquee) 🏃‍♂️📣", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Todos los títulos de canciones en los reproductores principales, nombres de grabaciones/podmarks en listas del explorador y en los widgets de la pantalla de inicio ahora rotan dinámicamente para visualizar completamente rutas largas.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Búsqueda Avanzada Unificada 🔍📁", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Se eliminó el gran buscador superior de grabaciones y se integró una barra de búsqueda flotante con una lupa elegante, junto a los botones de eliminación, visualizando además la ruta (path) completa en cada item.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Prevención de Cierres de Radio (WakeLock) 🔋📡", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Se optimizó la estabilidad de fondo mediante bloqueos de control de energía que aseguran que el reproductor multimedia no se pause accidentalmente al entrar en modo de reposo.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Version 6.5 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Star, contentDescription = null, tint = SoftTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Versión 6.5 (Poder del Widget & Control Directo)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberCharcoal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("ANTERIOR 📦", color = Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Barras de Reproducción Más Anchas 🤚", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Se aumentaron y estilizaron los deslizadores o barras de reproducción táctiles de la app. Ahora poseen un grosor incrementado que facilita enormemente arrastrar el progreso con la punta del dedo sin fallas.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Volver a en Vivo DIRECTO al Instante 🔴", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Cuando sintonizas una emisora y estás en modo diferido/Timeshift, aparecerá un botón exclusivo '🔴 DIRECTO' en el widget de la pantalla de inicio para regresar inmediatamente al vivo.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Barra del Widget de 8dp Gruesa 📐", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("La barra del widget de inicio ahora mide un grosor de 8dp, mejorando notablemente su visibilidad, estética general y simetría con el reproductor principal.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Version 6.1 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Star, contentDescription = null, tint = SoftTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Versión 6.1 (Reproducción y Compactado UX)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberCharcoal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("ANTERIOR 📦", color = Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Mini-Reproductor Dinámico Global 🎵", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Se añadió un mini-reproductor premium flotante justo encima de la barra de pestañas, con barra de progreso luminosa y acceso directo táctil al reproductor completo.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Reproducción Unificada de Carpeta Completa 💿", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Se agregó un botón de reproducción rápida en local y FTP para iniciar el audio de un directorio completo de una sola vez.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Perfil FTP Ajustado y Justo ⚡", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("La tarjeta de estado de conexión se optimizó para permanecer compacta y estética en dominios largos o servidores DNS.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Version 6.0 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Star, contentDescription = null, tint = SoftTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Versión 6.0 (Cuadrículas, Cargas y Estabilidad)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberCharcoal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("PASADA 🌟", color = Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Vista en Cuadrícula en Radios Online 📱", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("¡Disfruta de tus emisoras con mayor riqueza visual! Ahora puedes alternar instantáneamente entre la lista vertical y una cuadrícula táctil de 2 columnas presionando el interruptor de vista.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Transición Silenciosa de Reproducción de Radio 🔇", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Para una audición relajada, no se mostrarán diálogos molestos de carga al cargar radios en directo. Solo se abrirá un diálogo de descarga al lanzar un archivo FTP si la radio sigue activa.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Seguimiento del Progreso en Porcentaje 📡", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("El popup de conexión presenta la precarga de tu pista remota FTP detallada con progreso dinámico en porcentaje e iconos interactivos representativos.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Escaneo FTP Estabilizado sin Microcortes 📂", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Se pulió y optimizó la detección y captura de metadatos en segundo plano para evitar avisos y desconexiones falsas al sincronizar tus carpetas.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Version 5.2 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Star, contentDescription = null, tint = SoftTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Versión 5.2 (Sincronización, Icono y Ahorro FTP)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberCharcoal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("NUEVA 🌟", color = Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Ajuste de Recordar Posición de Pista 💾⏱️", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Al habilitar la nueva opción 'Recordar Posición al Iniciar' en Opciones, el reproductor persistirá tu progreso por pista local o remota y lo recuperará al volver a reproducirla.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Icono Dinámico de Sincronización en Reproductor ⚡📡", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Añadido un indicador de reloj interactivo en la línea de Podmarks y Favoritos que te avisa con un Toast detallado del estado del sincronizador.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Autodesconexión de Inactividad de FTP 🔋🔌", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Para optimizar batería y flujo de datos, la sesión de FTP se cerrará dinámicamente si no hay reproducción de audio activa durante 5 minutos continuos, informando con un Toast.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Version 5.1 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Star, contentDescription = null, tint = SoftTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Versión 5.1 (Unificación, Orden, Papelera e Historial)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberTeal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("ACTUAL 🚀", color = CyberDark, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Unificación de Iconografía 📼🎨", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Toda la app tiene ahora la misma sintonía de iconos uniforme. Al cambiar entre estilos Retro, Moderno o Neutro, los controles de todas las pestañas y configuraciones se adaptan instantáneamente.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Clasificación de Canciones Favoritas ❤️‍🩹", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Nueva barra de ordenación en favoritos. Filtra y ordena de forma ascendente o descendente (A-Z / Z-A), por fecha de agregado o por veces reproducido.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Eliminación Inteligente de Grabaciones y Podmarks 🗑️📍", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Corregido el error al enviar grabaciones a la papelera. Además, el sistema ahora detecta y elimina de forma automatizada los podmarks asociados avisándote previamente con una nota en la UI.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Interruptor de Papelera y Corrección de Avisos ⚠️✔️", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Añadido botón para activar/desactivar la papelera desde Ajustes. Corregida también la alerta de 'Última pista' para que solo aparezca si el reproductor detecta una playlist real de más de un elemento.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Version 5.0 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Star, contentDescription = null, tint = SoftTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Versión 5.0 (Papelera Inteligente, Colas Robustas y UX)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberTeal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("NUEVA 🌟", color = CyberDark, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Papelera de Reciclaje Centralizada 🗑️", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Nueva sección de papelera en los ajustes para recuperar o eliminar definitivamente tus grabaciones MP3, podmarks o canciones favoritas. Incluye persistencia a largo plazo y opción de purga automática cada 30 días para optimizar la memoria.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Autocarga Completa de Carpetas Precedentes 📂", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Al iniciar la app, reanudar una pista o cargar un archivo desde tus pistas recientes, el reproductor ahora escanea y precarga automáticamente todos los demás audios de su directorio (local o remoto FTP) en orden natural. ¡La cola de reproducción conserva la misma firma idéntica que si navegaras directamente desde el explorador!", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Navegación y Estados Persistentes 🎨", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Los menús de configuración y personalización ahora guardan su pestaña activa en el modelo de vista. ¡Olvídate de volver por error a la lista de reproducción cada vez que ajustas el color o el tema oscuro de la interfaz!", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("•", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Column {
+                                            Text("Confirmaciones Seguras de Borrado ☑️", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Diálogos con diseño Material 3 para pedir confirmación obligatoria al borrar una sola pista o vaciar listas de reproducción completas, eliminando pulsaciones fantasma.", color = Color.LightGray, fontSize = 10.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Version 4.5 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Star, contentDescription = null, tint = SoftTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Versión 4.5 (Streaming Progresivo e Interactividad)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberTeal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("SÚPER", color = CyberDark, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Row {
+                                            Text("⚡", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Streaming Progresivo en Tiempo Real", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Las sesiones pesadas e hilos FTP se cargan de forma incremental. La reproducción comienza de inmediato al descargar un fragmento inicial y sigue almacenando el resto en segundo plano.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("🚀", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Precarga de Pista Inteligente", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Precarga silenciosa la canción anterior o posterior sin pausar la actual. Si se detecta en caché local, se reproduce al instante de forma nativa sin mostrar diálogos emergentes invasivos.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("🎶", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Gestión de Cola e Interactividad de Lista", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Añadido un botón en el reproductor para explorar la cola de reproducción actual. Puedes hacer scroll y pinchar para reproducir directamente. Además, el botón '+' de añadir a lista funciona de forma global en toda la aplicación.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("🔔", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Aviso de Fin de Lista de Reproducción", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Un cómodo aviso Toast flotante te notificará al instante cuando se termine de reproducir la última pista de una carpeta o lista de reproducción.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Version 4.0 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Star, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Versión 4.0 (Red Dinámica y Reproducción FTP Fluida)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberTeal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("NUEVO", color = CyberDark, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Row {
+                                            Text("🔄", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Autoreconexión Router Dual (Wi-Fi ⇄ WAN/DNS)", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Conmutación inalámbrica instantánea. Al salir de casa o al perder la conexión directa, el núcleo detecta el cambio de red, desconecta y reconecta usando tu host DNS/celular (y viceversa al entrar). Además, cualquier fallo de reproducción por ruta incorrecta fuerza una autocalibración inmediata.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("📁", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Listas de Carpeta Secuenciales Automáticas", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Al presionar cualquier audio de un directorio, genera al vuelo una cola indexando todas las canciones de la carpeta. Cuando termina un tema, pasa automáticamente al siguiente. Navegación clásica con los botones anterior/siguiente.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("⚡", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Precarga FTP Silenciosa Anticipada (-40s / -30s)", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Elimina el letargo de los servidores remotos. Al faltar 40 segundos se inicia la verificación de estado/conexión con el FTP de forma asíncrona, y al faltar exactamente 30 segundos se descarga la siguiente pista. Al cambiar de pieza, la reproducción comienza de forma instantánea sin tiempos de carga.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Version 3.2 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Star, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Versión 3.2 (Seguridad Extrema y Playlist)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberCharcoal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("ESTABLE", color = Color.Gray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Row {
+                                            Text("⚠️", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Doble Confirmación de Borrado", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Toda acción de eliminación de grabaciones físicas o marcas Podmarks requiere ahora tu confirmación interactiva para evitar que pierdas shows por despistes.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("➕", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Acceso Directo a Playlists integradas", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Añadido botón '+' al lado de Favoritos. Detecta tus listas o te permite crear una al vuelo e insertar directamente esa pista.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("🔒", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Doble Candado de Bloqueo Integral", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Implementado el candado protector para marcas Podmarks. Al bloquearlo, inhabilita el borrado por accidente de ese momento de interés.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("📐", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Tarjetas Visuales Simétricas", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Alineación proporcional del listado de grabaciones de audio y podmarks con dimensiones idénticas y excelente espaciado de tarjetas.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("ℹ️", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Procedencia Clara del Flujo Activo", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Los reproductores informan inequívocamente si la fuente en reproducción proviene de Radio Online, FTP o Almacenamiento Interno local.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("🎨", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Contraste Superior en Modo Claro", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Las fuentes del personalizador en Modo Claro adaptan su color dinámicamente para lograr una visión perfecta libre de opacidades o de marcas invisibles.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Version 3.1 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Star, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Versión 3.1 (Seguridad y Control total)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberCharcoal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("ESTABLE", color = Color.Gray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Row {
+                                            Text("📍", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Borrado de Podmarks con tres toques", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Ahora puedes borrar pines interactivos en la barra de reproducción (seek slider) haciendo triple clic sobre ellos de forma inmediata en el reproductor.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("⏹️", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Botón de parada de escaneo (PARAR)", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Se ha integrado un botón de cancelación ('PARAR') al lado del indicador de progreso al realizar un escaneo profundo de metadatos o biblioteca.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("🔒", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Candado de protección para grabaciones", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Puedes bloquear y desbloquear episodios de podcasts/grabaciones desde la vista. Las pistas protegidas lucen un título de oro y rechazan intentos de borrado.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("📻", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Clasificación de procedencia de audios", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Corregida la categorización en el historial de audios reproducidos para identificar con total precisión si provienen de Radio Online, FTP o almacenamiento del Móvil local.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("🎨", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Asociación automática de logotipo", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Las grabaciones físicas en directo de emisoras de radio ahora registran el logotipo de la estación de origen para una interfaz más colorida y profesional.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Version 3.0 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Star, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Versión 3.0 (Conectividad Dinámica)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberTeal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("NUEVO", color = CyberDark, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Row {
+                                            Text("📍", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Detección de Wi-Fi SSID y Enrutado Inteligente", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Detecta automáticamente si estás en el Wi-Fi de tu casa. Enrutado dinámico inmediato hacia tu IP local del servidor (ej: 192.168.x.x) para descargas súper veloces en red local, o redireccionamiento a URL/DNS externa al salir.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("🔌", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Sonda de Redundancia Ultra Veloz", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Si por falta de permisos o SSIDs ocultos no se detecta la red, el sistema lanza una sofisticada sonda de sockets con timeout súper corto (1.2s) para verificar directamente si la IP local responde, garantizando la velocidad de red casera sin esperas.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("🛡️", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Nuevo Panel de Permisos Integrado", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Añadimos un interruptor en el panel de Ajustes > Permisos para dar acceso a la Ubicación precisa, necesario en Android para que la app pueda leer el SSID del Wi-Fi de forma nativa.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("🧹", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Eliminación Limpia de Servidores", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Corregida la gestión de perfiles: ahora puedes borrar individualmente tus servidores sin bloqueos del estado ni ruidos residuales.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("📱", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Formulario de Configuración Ajustable", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Ajustadas las dimensiones del diálogo de configuración con scroll acotado, permitiendo visualizar siempre los campos de SSID, IP Local y los botones en pantallas de todos los tamaños.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Version 2.2 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Star, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Versión 2.2 (Últimas Mejoras)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberTeal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("NUEVO", color = CyberDark, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Row {
+                                            Text("📁", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Explorador de Carpetas Real", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Soporte completo para árboles de directorios reales en carpetas de música (tanto locales como FTP). Navega de forma recursiva por subcarpetas en vez de visualizarlas aplanadas.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("👥", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Gestión Avanzada de Copias FTP", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Permite la duplicación y eliminación limpia de perfiles de conexión FTP copiados, eliminando las restricciones de guardado erróneo y mejorando de forma limpia el flujo de conexiones.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("🖼️", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Caché Inteligente de Carátulas", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Configuramos una memoria caché LRU ultrarrápida para las carátulas MP3 locales y FTP. Una vez cargadas, se muestran de inmediato al hacer scroll, evitando parpadeos de carga y reduciendo drásticamente el consumo de red/procesador.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Version 2.1 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Star, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Versión 2.1 (Ajustes de Interfaz)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberCharcoal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("COMPLETO", color = Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Row {
+                                            Text("🗑️", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Confirmación para borrar Podmarks", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Se ha implementado una ventana emergente de confirmación interactiva antes de eliminar definitivamente cualquier Podmark para evitar pérdidas accidentales.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("📻", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Botón Integrado de Emisión Directa / Timeshift", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Se retiró el banner superior y se integró el logotipo dinámico de estado en la fila principal de controles (junto a STOP y PLAY/PAUSE). Al estar en modo Timeshift, tocar el logotipo vuelve al directo LIVE al instante, optimizando el espacio vertical en pantalla.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("⏪", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Sintonización Sincrónica de Controles Temporales", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Se unificaron y organizaron simétricamente todos los controles de avance y retroceso a ambos lados del reproductor de disco CD: botones de 10 segundos arriba y 30 segundos abajo.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Version 2.0 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Star, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Versión 2.0 (Actualización Actual)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(CyberTeal, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("MEJORAS CLAVE", color = CyberDark, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Row {
+                                            Text("🎨", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Selector de Colores Neón y Fondo Claro/Oscuro", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Concede personalización total a través del nuevo panel 'VISTA Y TEMA'. Elige entre fondo Blanco estructurado u Oscuro puro, junto con tipografías neón reactivas en Azul Ciano, Lila Morado o Verde Android.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("📌", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Organizador Integrado de Podmarks", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Hemos unificado las notas interactivas (Podmarks) y grabaciones locales en pestañas elegantes en Multimedia, permitiéndote saltar de inmediato al milisegundo correspondiente.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("⚡", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Botones Instrumentales de Ganancia Estructurada", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Reemplazamos la barra de volumen boost por cuatro botones exclusivos (+0%, +25%, +50%, +75%) de incrementos seguros para prevenir daños accidentales del hardware de audio.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+
+                                        Row {
+                                            Text("🛡️", fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text("Consolidación General de Ajustes Estables", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Eliminamos el buffer y la ruta configurable del menú drawer lateral izquierdo para centrar todos sus accesos estrictamente dentro de este módulo unificado de configuraciones.", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Version 1.1 & 1.2 Card
                         item {
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = CyberSurface),
@@ -3543,47 +10634,59 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                             ) {
                                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.Star, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(18.dp))
+                                        Icon(Icons.Default.DateRange, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Novedades Principales", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        Text("Versión 1.1 y 1.2 (Soporte Multi-directorio)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                     }
                                     
                                     HorizontalDivider(color = CyberCharcoal)
 
                                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                         Row {
-                                            Text("💾", fontSize = 14.sp)
+                                            Text("🔌", fontSize = 13.sp)
                                             Spacer(modifier = Modifier.width(8.dp))
                                             Column {
-                                                Text("Grabaciones integradas en Multimedia", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                Text("Hemos movido todas las capacidades de podcasts y grabaciones locales físicas, así como los Podmarks (marcadores de audio interactivos), de la pestaña ajustes a una nueva pestaña exclusiva en MULTIMEDIA, haciendo la navegación instantánea y directa.", color = Color.Gray, fontSize = 10.sp)
+                                                Text("Historial y Gestor Multi-directorio de Escaneo", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Permite agrupar en tu biblioteca de última sintonización múltiples directorios locales en SAF o perfiles FTP de manera unificada.", color = Color.Gray, fontSize = 10.sp)
                                             }
                                         }
 
                                         Row {
-                                            Text("📦", fontSize = 14.sp)
+                                            Text("☁️", fontSize = 13.sp)
                                             Spacer(modifier = Modifier.width(8.dp))
                                             Column {
-                                                Text("Actualizador de Dropbox Rediseñado", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                Text("Desconectamos permanentemente la distribución de código abierto de GitHub para enfocarnos exclusivamente en Dropbox. Ahora la aplicación v1.1 se actualiza de manera más estable desde tus links compartidos.", color = Color.Gray, fontSize = 10.sp)
+                                                Text("Actualizador Permanente de Dropbox", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Desconectamos los repositorios antiguos de GitHub para distribuir de forma prioritaria el APK de forma directa y simplificada sobre servidores de Dropbox.", color = Color.Gray, fontSize = 10.sp)
                                             }
                                         }
+                                    }
+                                }
+                            }
+                        }
 
+                        // Version 1.0 Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.History, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Versión 1.0 (Lanzamiento Inicial)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                         Row {
-                                            Text("🔧", fontSize = 14.sp)
+                                            Text("🎵", fontSize = 13.sp)
                                             Spacer(modifier = Modifier.width(8.dp))
                                             Column {
-                                                Text("Apartado de Cambios (Changelog)", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                Text("Integrado este panel interactivo de novedades directamente en tus Ajustes del sistema para que nunca te pierdas de las últimas funciones de la aplicación.", color = Color.Gray, fontSize = 10.sp)
-                                            }
-                                        }
-                                        
-                                        Row {
-                                            Text("🚀", fontSize = 14.sp)
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Column {
-                                                Text("Optimización de Timeshift Buffer", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                Text("Mejoramos la latencia y la fluidez al pausar / reanudar y navegar las emisoras de radio online en tiempo real.", color = Color.Gray, fontSize = 10.sp)
+                                                Text("Biblioteca Principal & Sintonizador", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Carga de canciones de servidores FTP y memoria física con streaming en tiempo real y soporte para listas de sintonización online.", color = Color.Gray, fontSize = 10.sp)
                                             }
                                         }
                                     }
@@ -3592,14 +10695,18 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                         }
                     }
                 }
-                6 -> {
-                    // TAB 6: INFO Y VERSIÓN CON ACTUALIZADOR DROPBOX EXCLUSIVO (GITHUB ELIMINADO v1.1)
-                    val currentVersionName = "1.1"
+                8 -> {
+                    // TAB 8: INFO Y VERSIÓN CON ACTUALIZADOR DROPBOX EXCLUSIVO (GITHUB ELIMINADO v2.0)
+                    val currentVersionName = "7.9"
                     
                     val updaterPrefs = remember { context.getSharedPreferences("app_updater_configs", android.content.Context.MODE_PRIVATE) }
                     
-                    var dropboxVersionUrl by remember { mutableStateOf(updaterPrefs.getString("dropbox_version_url", "") ?: "") }
-                    var dropboxApkUrl by remember { mutableStateOf(updaterPrefs.getString("dropbox_apk_url", "") ?: "") }
+                    val defaultVersionUrl = "https://www.dropbox.com/scl/fi/bal4d3ijff0i0dm9zgqm3/version.txt?rlkey=y22zkh7ku4bvc68fx9sndmiuy&dl=0"
+                    val defaultApkUrl = "https://www.dropbox.com/scl/fi/85ndsep7h1ss61cai1n92/app-debug.apk?rlkey=2lfm5pafe89bd94417byyono6&dl=0"
+
+                    var dropboxVersionUrl by remember { mutableStateOf(updaterPrefs.getString("dropbox_version_url", defaultVersionUrl) ?: defaultVersionUrl) }
+                    var dropboxApkUrl by remember { mutableStateOf(updaterPrefs.getString("dropbox_apk_url", defaultApkUrl) ?: defaultApkUrl) }
+                    var showLinkInputs by remember { mutableStateOf(false) }
                     
                     var updateStatusMsg by remember { mutableStateOf("Listo para buscar actualizaciones en Dropbox.") }
                     var updateNotes by remember { mutableStateOf("") }
@@ -3683,43 +10790,70 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                     Spacer(modifier = Modifier.height(12.dp))
                                     
                                     Text(
-                                        text = "Sube un archivo de texto simple a Dropbox que contenga el número de versión (ej: 1.1) y un archivo APK con la aplicación. Pega sus enlaces compartidos abajo para habilitar la búsqueda e instalación automatizada.",
+                                        text = "Sube un archivo de texto simple a Dropbox que contenga el número de versión (ej: 2.0) y un archivo APK con la aplicación. Pega sus enlaces compartidos abajo para habilitar la búsqueda e instalación automatizada.",
                                         fontSize = 11.sp,
                                         color = Color.LightGray
                                     )
                                     Spacer(modifier = Modifier.height(12.dp))
 
-                                    OutlinedTextField(
-                                        value = dropboxVersionUrl,
-                                        onValueChange = { 
-                                            dropboxVersionUrl = it 
-                                            updaterPrefs.edit().putString("dropbox_version_url", it).apply()
-                                        },
-                                        label = { Text("Enlace Dropbox a version.txt", fontSize = 10.sp, color = Color.Gray) },
-                                        placeholder = { Text("https://www.dropbox.com/.../version.txt?dl=0", fontSize = 10.sp, color = Color.DarkGray) },
-                                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = Color.White),
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedBorderColor = CyberTeal,
-                                            unfocusedBorderColor = CyberCharcoal
-                                        ),
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    OutlinedTextField(
-                                        value = dropboxApkUrl,
-                                        onValueChange = { 
-                                            dropboxApkUrl = it 
-                                            updaterPrefs.edit().putString("dropbox_apk_url", it).apply()
-                                        },
-                                        label = { Text("Enlace Dropbox a la APK", fontSize = 10.sp, color = Color.Gray) },
-                                        placeholder = { Text("https://www.dropbox.com/.../app.apk?dl=0", fontSize = 10.sp, color = Color.DarkGray) },
-                                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = Color.White),
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedBorderColor = CyberTeal,
-                                            unfocusedBorderColor = CyberCharcoal
-                                        ),
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Enlaces de origen (Dropbox):",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            color = Color.LightGray
+                                        )
+                                        TextButton(
+                                            onClick = { showLinkInputs = !showLinkInputs },
+                                            contentPadding = PaddingValues(0.dp)
+                                        ) {
+                                            Text(
+                                                text = if (showLinkInputs) "OCULTAR ENLACES 🙈" else "MOSTRAR/EDITAR ENLACES ⚙️",
+                                                fontSize = 10.sp,
+                                                color = CyberTeal,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+
+                                    androidx.compose.animation.AnimatedVisibility(visible = showLinkInputs) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            OutlinedTextField(
+                                                value = dropboxVersionUrl,
+                                                onValueChange = { 
+                                                    dropboxVersionUrl = it 
+                                                    updaterPrefs.edit().putString("dropbox_version_url", it).apply()
+                                                },
+                                                label = { Text("Enlace Dropbox a version.txt", fontSize = 10.sp, color = Color.Gray) },
+                                                placeholder = { Text("https://www.dropbox.com/.../version.txt?dl=0", fontSize = 10.sp, color = Color.DarkGray) },
+                                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = Color.White),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = CyberTeal,
+                                                    unfocusedBorderColor = CyberCharcoal
+                                                ),
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                            OutlinedTextField(
+                                                value = dropboxApkUrl,
+                                                onValueChange = { 
+                                                    dropboxApkUrl = it 
+                                                    updaterPrefs.edit().putString("dropbox_apk_url", it).apply()
+                                                },
+                                                label = { Text("Enlace Dropbox a la APK", fontSize = 10.sp, color = Color.Gray) },
+                                                placeholder = { Text("https://www.dropbox.com/.../app.apk?dl=0", fontSize = 10.sp, color = Color.DarkGray) },
+                                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = Color.White),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = CyberTeal,
+                                                    unfocusedBorderColor = CyberCharcoal
+                                                ),
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+                                    }
 
                                     Spacer(modifier = Modifier.height(16.dp))
 
@@ -3828,10 +10962,28 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                                             if (cleanTag.length > 20 || cleanTag.isEmpty()) {
                                                                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                                                                     updateIsLoading = false
-                                                                    updateStatusMsg = "⚠️ Contenido inválido leído en Dropbox: '$rawText'. El fichero 'version.txt' de Dropbox debe contener SOLAMENTE el número de versión (ej: 1.1) en texto plano."
+                                                                    updateStatusMsg = "⚠️ Contenido inválido leído en Dropbox: '$rawText'. El fichero 'version.txt' de Dropbox debe contener SOLAMENTE el número de versión (ej: 2.0) en texto plano."
                                                                 }
                                                             } else {
-                                                                val isDifferent = cleanTag != currentVer
+                                                                val isNewer = run {
+                                                                     val remoteParts = cleanTag.split('.').map { s -> s.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 0 }
+                                                                     val localParts = currentVer.split('.').map { s -> s.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 0 }
+                                                                     val size = maxOf(remoteParts.size, localParts.size)
+                                                                     var result = false
+                                                                     for (i in 0 until size) {
+                                                                         val remVal = remoteParts.getOrElse(i) { 0 }
+                                                                         val locVal = localParts.getOrElse(i) { 0 }
+                                                                         if (remVal > locVal) {
+                                                                             result = true
+                                                                             break
+                                                                         }
+                                                                         if (remVal < locVal) {
+                                                                             result = false
+                                                                             break
+                                                                         }
+                                                                     }
+                                                                     result
+                                                                 }
                                                                 
                                                                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                                                                     updateIsLoading = false
@@ -3849,14 +11001,18 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                                                     }
                                                                     
                                                                     updateDownloadUrl = apkDownloadUrl
-                                                                    if (isDifferent) {
+                                                                    if (isNewer) {
                                                                         updateIsNewer = true
                                                                         updateStatusMsg = "✨ ¡NUEVA ACTUALIZACIÓN DETECTADA EN DROPBOX: v$cleanTag! ✨"
                                                                         updateNotes = "Descarga el archivo APK directamente de tu cuenta de Dropbox para su instalación."
                                                                     } else {
                                                                         updateIsNewer = false
                                                                         updateStatusMsg = "✅ Tu aplicación está en la última versión oficial (v$currentVersionName)."
-                                                                        updateNotes = "El archivo version.txt leído de Dropbox indica que la versión remota idéntica es v$cleanTag."
+                                                                        if (cleanTag == currentVer) {
+                                                                             updateNotes = "El archivo version.txt leído de Dropbox indica que la versión remota idéntica es v$cleanTag."
+                                                                         } else {
+                                                                             updateNotes = "El archivo version.txt de Dropbox es de una versión anterior (v$cleanTag). Tu versión actual (v$currentVersionName) es más reciente."
+                                                                         }
                                                                     }
                                                                 }
                                                             }
@@ -3947,6 +11103,401 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                         }
                     }
                 }
+                9 -> {
+                    // TAB 9: PAPELERA DE RECICLAJE
+                    val coroutineScope = rememberCoroutineScope()
+                    var trashList by remember { mutableStateOf(com.example.data.repository.TrashManager.getTrashItems(context)) }
+                    var autoDeleteEnabled by remember { mutableStateOf(com.example.data.repository.TrashManager.isAutoDeleteEnabled(context)) }
+                    var showEmptyConfirmDialog by remember { mutableStateOf(false) }
+                    var itemToDeletePermanently by remember { mutableStateOf<com.example.data.repository.TrashItem?>(null) }
+
+                    // Auto-delete pre-deletion warning states
+                    var showAutoDeleteWarningDialog by remember { mutableStateOf(false) }
+                    var itemsToAutoDeleteList by remember { mutableStateOf<List<com.example.data.repository.TrashItem>>(emptyList()) }
+
+                    LaunchedEffect(Unit) {
+                        if (autoDeleteEnabled) {
+                            val list = com.example.data.repository.TrashManager.getTrashItems(context)
+                            val thirtyDaysMs = 30L * 24L * 60L * 60L * 1000L
+                            val now = System.currentTimeMillis()
+                            val toWarn = list.filter { now - it.deletedAt > thirtyDaysMs }
+                            if (toWarn.isNotEmpty()) {
+                                itemsToAutoDeleteList = toWarn
+                                showAutoDeleteWarningDialog = true
+                            }
+                        }
+                    }
+
+                    if (itemToDeletePermanently != null) {
+                        val item = itemToDeletePermanently!!
+                        AlertDialog(
+                            onDismissRequest = { itemToDeletePermanently = null },
+                            title = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Delete, contentDescription = null, tint = WarningHotPink)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Eliminar definitivamente ⚠️", color = WarningHotPink, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                }
+                            },
+                            text = {
+                                Text(
+                                    "¿Deseas eliminar permanentemente '${item.displayName}'? Esta acción borrará físicamente el archivo de tu almacenamiento y no podrás recuperarlo.",
+                                    color = Color.LightGray,
+                                    fontSize = 13.sp
+                                )
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        com.example.data.repository.TrashManager.deletePermanently(context, item)
+                                        trashList = com.example.data.repository.TrashManager.getTrashItems(context)
+                                        itemToDeletePermanently = null
+                                        Toast.makeText(context, "Eliminado permanentemente", Toast.LENGTH_SHORT).show()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White)
+                                ) {
+                                    Text("ELIMINAR", fontWeight = FontWeight.Bold)
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { itemToDeletePermanently = null }) {
+                                    Text("CANCELAR", color = Color.Gray)
+                                }
+                            },
+                            containerColor = CyberSurface
+                        )
+                    }
+
+                    if (showEmptyConfirmDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showEmptyConfirmDialog = false },
+                            title = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Delete, contentDescription = null, tint = WarningHotPink)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Vaciar Papelera 🚨", color = WarningHotPink, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                }
+                            },
+                            text = {
+                                Text(
+                                    "¿Estás seguro de que deseas eliminar permanentemente todos los ítems de la papelera? Esta acción no se puede deshacer.",
+                                    color = Color.LightGray,
+                                    fontSize = 13.sp
+                                )
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        com.example.data.repository.TrashManager.emptyTrash(context)
+                                        trashList = com.example.data.repository.TrashManager.getTrashItems(context)
+                                        showEmptyConfirmDialog = false
+                                        Toast.makeText(context, "Papelera vaciada por completo", Toast.LENGTH_SHORT).show()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White)
+                                ) {
+                                    Text("VACIAR", fontWeight = FontWeight.Bold)
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showEmptyConfirmDialog = false }) {
+                                    Text("CANCELAR", color = Color.Gray)
+                                }
+                            },
+                            containerColor = CyberSurface
+                        )
+                    }
+
+                    if (showAutoDeleteWarningDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showAutoDeleteWarningDialog = false },
+                            title = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Warning, contentDescription = null, tint = WarningHotPink)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Borrado Automático Activo ⏳", color = WarningHotPink, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                }
+                            },
+                            text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        text = "⚡ Recordatorio: Se han detectado ${itemsToAutoDeleteList.size} elemento(s) que llevan más de 30 días en la papelera y van a eliminarse permanentemente de forma automática.",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 120.dp)
+                                            .background(CyberCharcoal, RoundedCornerShape(8.dp))
+                                            .padding(8.dp)
+                                    ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            itemsToAutoDeleteList.forEach { item ->
+                                                Text(
+                                                    text = "• ${item.displayName}",
+                                                    color = CyberLight,
+                                                    fontSize = 11.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Text(
+                                        text = "¿Deseas eliminarlos de forma definitiva ahora, o deseas cancelar para poder restaurarlos o recuperarlos antes de que se pierdan?",
+                                        color = Color.Gray,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        com.example.data.repository.TrashManager.checkAndAutoDelete(context)
+                                        trashList = com.example.data.repository.TrashManager.getTrashItems(context)
+                                        showAutoDeleteWarningDialog = false
+                                        Toast.makeText(context, "Elementos antiguos borrados con éxito", Toast.LENGTH_SHORT).show()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White)
+                                ) {
+                                    Text("Proceder al Borrado", fontWeight = FontWeight.Bold)
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(
+                                    onClick = { showAutoDeleteWarningDialog = false }
+                                ) {
+                                    Text("Recuperar Algo", color = CyberTeal)
+                                }
+                            },
+                            containerColor = CyberDark
+                        )
+                    }
+
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(24.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Papelera de Reciclaje 🗑️", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Las grabaciones de audio MP3, podmarks de marcas temporales y canciones favoritas que elimines se almacenan temporalmente aquí antes de ser borrados definitivamente.",
+                                        fontSize = 11.sp,
+                                        color = Color.LightGray
+                                    )
+                                }
+                            }
+                        }
+
+                        // Auto-delete option, Trash activation Switch and Empty Trash option
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    var isTrashEnabled by remember { mutableStateOf(com.example.data.repository.TrashManager.isTrashEnabled(context)) }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Activar Papelera de Reciclaje", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                            Text(
+                                                if (isTrashEnabled) "Las grabaciones eliminadas irán a la papelera 🗑️" else "Desactivada: Se borran permanentemente del disco ⚠️",
+                                                color = if (isTrashEnabled) CyberTeal else WarningHotPink,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                        Switch(
+                                            checked = isTrashEnabled,
+                                            onCheckedChange = { value ->
+                                                com.example.data.repository.TrashManager.setTrashEnabled(context, value)
+                                                isTrashEnabled = value
+                                                val msg = if (value) "Papelera de grabaciones ACTIVADA" else "Papelera de grabaciones DESACTIVADA"
+                                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = CyberTeal,
+                                                checkedTrackColor = CyberTeal.copy(alpha = 0.5f)
+                                            )
+                                        )
+                                    }
+
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Borrado Automático (30 Días)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                            Text("Los elementos borrados hace más de 30 días se eliminarán automáticamente de la app.", color = Color.Gray, fontSize = 10.sp)
+                                        }
+                                        Switch(
+                                            checked = autoDeleteEnabled,
+                                            onCheckedChange = { check ->
+                                                com.example.data.repository.TrashManager.setAutoDeleteEnabled(context, check)
+                                                autoDeleteEnabled = check
+                                                if (check) {
+                                                    com.example.data.repository.TrashManager.checkAndAutoDelete(context)
+                                                    trashList = com.example.data.repository.TrashManager.getTrashItems(context)
+                                                }
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = CyberTeal,
+                                                checkedTrackColor = CyberTeal.copy(alpha = 0.5f)
+                                            )
+                                        )
+                                    }
+
+                                    HorizontalDivider(color = CyberCharcoal)
+
+                                    Button(
+                                        onClick = { showEmptyConfirmDialog = true },
+                                        enabled = trashList.isNotEmpty(),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = WarningHotPink.copy(alpha = 0.2f),
+                                            contentColor = WarningHotPink,
+                                            disabledContainerColor = CyberCharcoal.copy(alpha = 0.3f),
+                                            disabledContentColor = Color.Gray
+                                        ),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("VACIAR PAPELERA", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+
+                        if (trashList.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 40.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(64.dp))
+                                        Text("La papelera de reciclaje está vacía", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                        Text("No tienes ningún ítem temporal protegido", color = Color.Gray.copy(alpha = 0.7f), fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        } else {
+                            items(trashList.size) { index ->
+                                val item = trashList[index]
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(14.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                                val typeIcon = when (item.type) {
+                                                    "recording" -> Icons.Default.Mic
+                                                    "podmark" -> Icons.Default.Place
+                                                    "favorite" -> Icons.Default.Favorite
+                                                    else -> Icons.Default.MusicNote
+                                                }
+                                                val typeLabel = when (item.type) {
+                                                    "recording" -> "Grabación MP3"
+                                                    "podmark" -> "Podmark"
+                                                    "favorite" -> "Favorito"
+                                                    else -> "Elemento"
+                                                }
+                                                Icon(
+                                                    imageVector = typeIcon,
+                                                    contentDescription = null,
+                                                    tint = CyberTeal,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Column {
+                                                    Text(
+                                                        text = item.displayName,
+                                                        color = Color.White,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Text(
+                                                        text = "$typeLabel • Elimi.: ${android.text.format.DateFormat.format("dd/MM/yyyy HH:mm", item.deletedAt)}",
+                                                        color = Color.Gray,
+                                                        fontSize = 11.sp
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        HorizontalDivider(color = CyberCharcoal)
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            // Restore action
+                                            TextButton(
+                                                onClick = {
+                                                    com.example.data.repository.TrashManager.restoreItem(context, item, coroutineScope)
+                                                    trashList = com.example.data.repository.TrashManager.getTrashItems(context)
+                                                    Toast.makeText(context, "${item.type.replaceFirstChar { it.uppercase() }} restaurado con éxito", Toast.LENGTH_SHORT).show()
+                                                },
+                                                colors = ButtonDefaults.textButtonColors(contentColor = SoftTeal)
+                                            ) {
+                                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Restaurar", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+
+                                            // Permanent Delete action
+                                            TextButton(
+                                                onClick = {
+                                                    itemToDeletePermanently = item
+                                                },
+                                                colors = ButtonDefaults.textButtonColors(contentColor = WarningHotPink)
+                                            ) {
+                                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Eliminar Permanente", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -3996,36 +11547,69 @@ fun GroupHeader(title: String, count: Int, isExpanded: Boolean, onClick: () -> U
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun LocalTrackCard(
     track: com.example.data.model.LocalMusicTrack,
     context: android.content.Context,
     viewModel: FtpViewModel,
-    allTracksInView: List<com.example.data.model.LocalMusicTrack>
+    allTracksInView: List<com.example.data.model.LocalMusicTrack>,
+    onNavigateToPlayer: () -> Unit = {}
 ) {
+    val prefs = remember { context.getSharedPreferences("ftp_hub_settings", android.content.Context.MODE_PRIVATE) }
+    val durationFormatMode = prefs.getString("duration_format_mode", "minutes_seconds") ?: "minutes_seconds"
+    val formattedDuration = if (durationFormatMode == "only_minutes") {
+        val parts = track.durationText.split(":")
+        if (parts.size == 2) {
+            val mins = parts[0].toIntOrNull() ?: 0
+            val secs = parts[1].toIntOrNull() ?: 0
+            val totalMins = if (secs >= 30) mins + 1 else mins
+            "$totalMins min"
+        } else {
+            track.durationText
+        }
+    } else {
+        track.durationText
+    }
+
     Card(
         colors = CardDefaults.cardColors(containerColor = CyberSurface),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        onClick = {
-            val playlistPlaylists = allTracksInView.map {
-                PlaylistItem(
-                    id = 0,
-                    playlistId = -1,
-                    fileName = it.title,
-                    filePath = it.filePath,
-                    fileSize = it.size
-                )
-            }
-            val currentPlaylistItem = PlaylistItem(
-                id = 0,
-                playlistId = -1,
-                fileName = track.title,
-                filePath = track.filePath,
-                fileSize = track.size
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .combinedClickable(
+                onClick = {
+                    val playlistPlaylists = allTracksInView.map {
+                        PlaylistItem(
+                            id = 0,
+                            playlistId = -1,
+                            fileName = it.title,
+                            filePath = it.filePath,
+                            fileSize = it.size
+                        )
+                    }
+                    val currentPlaylistItem = PlaylistItem(
+                        id = 0,
+                        playlistId = -1,
+                        fileName = track.title,
+                        filePath = track.filePath,
+                        fileSize = track.size
+                    )
+                    AudioPlayerManager.playTrack(context, currentPlaylistItem, playlistPlaylists)
+                    onNavigateToPlayer()
+                },
+                onLongClick = {
+                    val mappedItem = FtpFileItem(
+                        name = track.title,
+                        path = track.filePath,
+                        size = track.size,
+                        isDirectory = false,
+                        lastModified = 0L
+                    )
+                    viewModel.setItemToPlaylist(mappedItem)
+                }
             )
-            AudioPlayerManager.playTrack(context, currentPlaylistItem, playlistPlaylists)
-        }
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -4041,14 +11625,13 @@ fun LocalTrackCard(
                     iconSize = 24.dp
                 )
                 Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text(
+                Column(modifier = Modifier.weight(1f)) {
+                    MarqueeText(
                         text = track.title,
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        maxLines = 1
                     )
                     Text(
                         text = "${track.artist} • ${track.album}",
@@ -4058,40 +11641,153 @@ fun LocalTrackCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "Año: ${if (track.year == "Desconocido") "N/A" else track.year} • ${track.durationText}",
+                        text = "Año: ${if (track.year == "Desconocido") "N/A" else track.year} • $formattedDuration",
                         color = CyberTeal.copy(alpha = 0.8f),
                         fontSize = 10.sp
                     )
                 }
             }
 
-            val favorites by viewModel.favoriteTracks.collectAsStateWithLifecycle()
-            val isFav = favorites.any { it.filePath == track.filePath }
-            IconButton(
-                onClick = {
-                    viewModel.toggleFavorite(
-                        filePath = track.filePath,
-                        fileName = track.title,
-                        isLocal = true,
-                        artist = track.artist
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = {
+                        val mappedItem = FtpFileItem(
+                            name = track.title,
+                            path = track.filePath,
+                            size = track.size,
+                            isDirectory = false,
+                            lastModified = 0L
+                        )
+                        viewModel.setItemToPlaylist(mappedItem)
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Añadir a playlist",
+                        tint = CyberTeal,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
-            ) {
-                Icon(
-                    imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = "Favorito",
-                    tint = if (isFav) WarningHotPink else Color.Gray,
-                    modifier = Modifier.size(20.dp)
-                )
+
+                val favorites by viewModel.favoriteTracks.collectAsStateWithLifecycle()
+                val isFav = favorites.any { it.filePath == track.filePath }
+                IconButton(
+                    onClick = {
+                        viewModel.toggleFavorite(
+                            filePath = track.filePath,
+                            fileName = track.title,
+                            isLocal = true,
+                            artist = track.artist
+                        )
+                    }
+                ) {
+                    Icon(
+                        imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = "Favorito",
+                        tint = if (isFav) WarningHotPink else Color.Gray,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
     }
 }
 
+fun deletePodmarksForFile(context: android.content.Context, filePath: String): Int {
+    val list = getPodmarks(context)
+    val toKeep = list.filter { it.filePath != filePath }
+    val deletedCount = list.size - toKeep.size
+    if (deletedCount > 0) {
+        val array = org.json.JSONArray()
+        for (pm in toKeep) {
+            val obj = org.json.JSONObject()
+            obj.put("trackName", pm.trackName)
+            obj.put("filePath", pm.filePath)
+            obj.put("positionMs", pm.positionMs)
+            obj.put("timestampText", pm.timestampText)
+            obj.put("createdAt", pm.createdAt)
+            array.put(obj)
+        }
+        val prefs = context.getSharedPreferences("player_podmarks", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putString("podmarks_list", array.toString()).commit()
+    }
+    return deletedCount
+}
+
+fun getPlayCount(context: android.content.Context, filePath: String): Int {
+    return try {
+        val prefs = context.getSharedPreferences("track_play_counts", android.content.Context.MODE_PRIVATE)
+        prefs.getInt(filePath, 0)
+    } catch (_: Exception) {
+        0
+    }
+}
+
+enum class FavSortOrder(val displayName: String) {
+    ALPHABETIC_ASC("Nombre (A-Z) 🔤"),
+    ALPHABETIC_DESC("Nombre (Z-A) 🔤"),
+    DATE_ADDED_DESC("Más reciente 🗓️"),
+    DATE_ADDED_ASC("Más antiguo 🗓️"),
+    TIMES_PLAYED("Más reproducido 🔥")
+}
+
 @Composable
-fun FavoritesDetailsScreen(viewModel: FtpViewModel) {
+fun FavoritesDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> Unit = {}) {
     val context = LocalContext.current
     val favorites by viewModel.favoriteTracks.collectAsStateWithLifecycle()
+    var favoriteToRemove by remember { mutableStateOf<com.example.data.model.FavoriteTrack?>(null) }
+    
+    var currentSortBy by remember { mutableStateOf(FavSortOrder.DATE_ADDED_DESC) }
+    var isDropdownExpanded by remember { mutableStateOf(false) }
+
+    val sortedFavorites = remember(favorites, currentSortBy) {
+        when (currentSortBy) {
+            FavSortOrder.ALPHABETIC_ASC -> favorites.sortedBy { it.fileName.lowercase() }
+            FavSortOrder.ALPHABETIC_DESC -> favorites.sortedByDescending { it.fileName.lowercase() }
+            FavSortOrder.DATE_ADDED_DESC -> favorites.sortedByDescending { it.addedAt }
+            FavSortOrder.DATE_ADDED_ASC -> favorites.sortedBy { it.addedAt }
+            FavSortOrder.TIMES_PLAYED -> favorites.sortedByDescending { getPlayCount(context, it.filePath) }
+        }
+    }
+
+    if (favoriteToRemove != null) {
+        val fav = favoriteToRemove!!
+        AlertDialog(
+            onDismissRequest = { favoriteToRemove = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.FavoriteBorder, contentDescription = null, tint = WarningHotPink)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Quitar de Favoritos ❤️‍🩹", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Text(
+                    "¿Estás seguro de que deseas eliminar la pista '${fav.fileName}' de tus canciones favoritas?",
+                    color = Color.LightGray,
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.toggleFavorite(fav.filePath, fav.fileName, fav.isLocal)
+                        favoriteToRemove = null
+                        Toast.makeText(context, "Eliminado de favoritos", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White)
+                ) {
+                    Text("QUITAR", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { favoriteToRemove = null }) {
+                    Text("CANCELAR", color = Color.Gray)
+                }
+            },
+            containerColor = CyberSurface
+        )
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -4102,6 +11798,45 @@ fun FavoritesDetailsScreen(viewModel: FtpViewModel) {
         item {
             Text("Mis Canciones Favoritas", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = CyberTeal)
             Text("Acceso ultra rápido a tus pistas musicales preferidas locales o remotas.", fontSize = 12.sp, color = Color.Gray)
+        }
+
+        if (favorites.isNotEmpty()) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Ordenar por:", fontSize = 12.sp, color = Color.Gray)
+                    
+                    Box {
+                        AssistChip(
+                            onClick = { isDropdownExpanded = true },
+                            label = { Text(currentSortBy.displayName, color = CyberTeal, fontSize = 11.sp) },
+                            trailingIcon = { Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(16.dp)) },
+                            colors = AssistChipDefaults.assistChipColors(containerColor = CyberSurface)
+                        )
+                        
+                        DropdownMenu(
+                            expanded = isDropdownExpanded,
+                            onDismissRequest = { isDropdownExpanded = false },
+                            modifier = Modifier.background(CyberSurface)
+                        ) {
+                            FavSortOrder.values().forEach { order ->
+                                DropdownMenuItem(
+                                    text = { Text(order.displayName, color = Color.White, fontSize = 13.sp) },
+                                    onClick = {
+                                        currentSortBy = order
+                                        isDropdownExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if (favorites.isEmpty()) {
@@ -4119,7 +11854,8 @@ fun FavoritesDetailsScreen(viewModel: FtpViewModel) {
                 }
             }
         } else {
-            items(favorites) { fav ->
+            items(sortedFavorites) { fav ->
+                val playCount = remember(fav.filePath) { getPlayCount(context, fav.filePath) }
                 Card(
                     colors = CardDefaults.cardColors(containerColor = CyberSurface),
                     shape = RoundedCornerShape(12.dp),
@@ -4133,6 +11869,7 @@ fun FavoritesDetailsScreen(viewModel: FtpViewModel) {
                             fileSize = 0
                         )
                         AudioPlayerManager.playTrack(context, playlistItem)
+                        onNavigateToPlayer()
                     }
                 ) {
                     Row(
@@ -4150,14 +11887,34 @@ fun FavoritesDetailsScreen(viewModel: FtpViewModel) {
                                 modifier = Modifier.size(24.dp)
                             )
                             Spacer(modifier = Modifier.width(16.dp))
-                            Column {
-                                Text(fav.fileName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text(if (fav.isLocal) "Móvil Local" else "Servidor Remoto", color = Color.Gray, fontSize = 11.sp)
+                            Column(modifier = Modifier.weight(1f)) {
+                                MarqueeText(fav.fileName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
+                                Text(
+                                    text = "${if (fav.isLocal) "Móvil Local" else "Servidor Remoto"} • Reproducido $playCount ${if (playCount == 1) "vez" else "veces"}",
+                                    color = Color.Gray,
+                                    fontSize = 11.sp
+                                )
                             }
                         }
 
-                        IconButton(onClick = { viewModel.toggleFavorite(fav.filePath, fav.fileName, fav.isLocal) }) {
-                            Icon(Icons.Default.Favorite, contentDescription = "Borrar de Favoritos", tint = WarningHotPink)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = {
+                                    val mappedItem = FtpFileItem(
+                                        name = fav.fileName,
+                                        path = fav.filePath,
+                                        size = 0L,
+                                        isDirectory = false,
+                                        lastModified = 0L
+                                    )
+                                    viewModel.setItemToPlaylist(mappedItem)
+                                }
+                            ) {
+                                PlaylistAddIcon(modifier = Modifier.size(20.dp), tint = CyberTeal)
+                            }
+                            IconButton(onClick = { favoriteToRemove = fav }) {
+                                Icon(Icons.Default.Favorite, contentDescription = "Borrar de Favoritos", tint = WarningHotPink, modifier = Modifier.size(20.dp))
+                            }
                         }
                     }
                 }
@@ -4173,6 +11930,7 @@ fun EqualizerDetailsScreen() {
     val boostLevel by AudioPlayerManager.boostLevel.collectAsStateWithLifecycle()
     val systemVolume by AudioPlayerManager.systemVolume.collectAsStateWithLifecycle()
     val maxSystemVolume by AudioPlayerManager.maxSystemVolume.collectAsStateWithLifecycle()
+    val currentPresetName by AudioPlayerManager.currentPresetName.collectAsStateWithLifecycle()
 
     LazyColumn(
         modifier = Modifier
@@ -4237,7 +11995,7 @@ fun EqualizerDetailsScreen() {
                             Text("Amplificador de Potencia (Boost MX)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                         Text(
-                            text = "+${(boostLevel / 2000f * 100).roundToInt()}%",
+                            text = "+${(boostLevel / 6000f * 100).roundToInt()}%",
                             color = WarningHotPink,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
@@ -4251,15 +12009,37 @@ fun EqualizerDetailsScreen() {
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     
-                    Slider(
-                        value = boostLevel / 2000f,
-                        onValueChange = { AudioPlayerManager.setAudioBoost(it) },
-                        colors = SliderDefaults.colors(
-                            thumbColor = WarningHotPink,
-                            activeTrackColor = WarningHotPink,
-                            inactiveTrackColor = CyberCharcoal
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val options = listOf(
+                            Triple(0f, "0% (Off)", "MÍN"),
+                            Triple(2000f, "33%", "MED"),
+                            Triple(4000f, "66%", "ALTO"),
+                            Triple(6000f, "100% 🔥", "EX-MAX")
                         )
-                    )
+                        options.forEach { (value, label, shortLabel) ->
+                            val isSelected = kotlin.math.abs(boostLevel - value) < 150f
+                            Button(
+                                onClick = { AudioPlayerManager.setAudioBoost(value / 6000f) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(42.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isSelected) WarningHotPink else CyberCharcoal,
+                                    contentColor = if (isSelected) Color.White else Color.LightGray
+                                ),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(shortLabel, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    Text(label, fontSize = 8.sp)
+                                }
+                            }
+                        }
+                    }
 
                     // Alert limit note if boost level is raised high
                     if (boostLevel > 800f) {
@@ -4331,30 +12111,35 @@ fun EqualizerDetailsScreen() {
                         Spacer(modifier = Modifier.height(16.dp))
 
                         // Graphic Equalizer quick preset selections
-                        Row(
+                        LazyRow(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Button(
-                                onClick = { AudioPlayerManager.setSubwooferPreset() },
-                                colors = ButtonDefaults.buttonColors(containerColor = CyberGrey),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Mega Bass", fontSize = 10.sp, color = CyberTeal)
-                            }
-                            Button(
-                                onClick = { AudioPlayerManager.setVocalPreset() },
-                                colors = ButtonDefaults.buttonColors(containerColor = CyberGrey),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Vocal", fontSize = 10.sp, color = CyberTeal)
-                            }
-                            Button(
-                                onClick = { AudioPlayerManager.setFlatPreset() },
-                                colors = ButtonDefaults.buttonColors(containerColor = CyberGrey),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Plana", fontSize = 10.sp, color = CyberTeal)
+                            val list = listOf(
+                                "Plana" to { AudioPlayerManager.setFlatPreset() },
+                                "Mega Bass" to { AudioPlayerManager.setSubwooferPreset() },
+                                "Dynamic Bass" to { AudioPlayerManager.setDynamicBassBoostPreset() },
+                                "Voz Clara" to { AudioPlayerManager.setVozClaraPreset() },
+                                "Metal/Rock" to { AudioPlayerManager.setMetalRockPreset() },
+                                "Vocal" to { AudioPlayerManager.setVocalPreset() },
+                                "Ambiental" to { AudioPlayerManager.setAmbientalPreset() }
+                            )
+                            items(list) { (name, action) ->
+                                Button(
+                                    onClick = action,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (currentPresetName == name) CyberTeal else CyberGrey
+                                    ),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text(
+                                        text = name,
+                                        fontSize = 10.sp,
+                                        color = if (currentPresetName == name) CyberDark else CyberTeal,
+                                        fontWeight = if (currentPresetName == name) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
                             }
                         }
 
@@ -4396,13 +12181,57 @@ fun EqualizerDetailsScreen() {
 }
 
 @Composable
-fun PlaylistsDetailsScreen(viewModel: FtpViewModel) {
+fun PlaylistsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> Unit = {}) {
     val context = LocalContext.current
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     var showCreateDialog by remember { mutableStateOf(false) }
     var playlistNameInput by remember { mutableStateOf("") }
     
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var playlistToRename by remember { mutableStateOf<Playlist?>(null) }
+    var renameNameInput by remember { mutableStateOf("") }
+    
     var activeExpandedPlaylist by remember { mutableStateOf<Playlist?>(null) }
+    var playlistToDelete by remember { mutableStateOf<Playlist?>(null) }
+
+    if (playlistToDelete != null) {
+        val playlist = playlistToDelete!!
+        AlertDialog(
+            onDismissRequest = { playlistToDelete = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Delete, contentDescription = null, tint = WarningHotPink)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Eliminar Lista Entera 🗑️", color = WarningHotPink, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Text(
+                    text = "¿Deseas eliminar la lista de reproducción completa '${playlist.name}'? Las canciones seguirán existiendo, pero se perderá esta agrupación.",
+                    color = Color.LightGray,
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deletePlaylist(playlist)
+                        playlistToDelete = null
+                        Toast.makeText(context, "Lista eliminada correctamente", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White)
+                ) {
+                    Text("ELIMINAR", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { playlistToDelete = null }) {
+                    Text("CANCELAR", color = Color.Gray)
+                }
+            },
+            containerColor = CyberSurface
+        )
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -4419,7 +12248,7 @@ fun PlaylistsDetailsScreen(viewModel: FtpViewModel) {
                 ) {
                     Text("Listas de Reproducción", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = CyberTeal)
                     IconButton(onClick = { showCreateDialog = true }) {
-                        Icon(Icons.Default.PlaylistAdd, contentDescription = "Crear", tint = CyberTeal)
+                        PlaylistAddIcon(tint = CyberTeal)
                     }
                 }
             }
@@ -4432,7 +12261,7 @@ fun PlaylistsDetailsScreen(viewModel: FtpViewModel) {
                             .padding(vertical = 48.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Icon(Icons.Default.FeaturedPlayList, contentDescription = null, tint = CyberGrey, modifier = Modifier.size(64.dp))
+                        PlaylistIcon(modifier = Modifier.size(64.dp), tint = CyberGrey)
                         Spacer(modifier = Modifier.height(12.dp))
                         Text("No tienes listas guardadas", color = Color.White, fontWeight = FontWeight.Bold)
                         Text("Crea una lista para comenzar a agrupar tus pistas FTP.", color = Color.Gray, fontSize = 11.sp)
@@ -4459,17 +12288,22 @@ fun PlaylistsDetailsScreen(viewModel: FtpViewModel) {
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.LibraryMusic,
-                                        contentDescription = null,
-                                        tint = if (isExpanded) CyberTeal else Color.Gray,
-                                        modifier = Modifier.size(32.dp)
+                                    PlaylistIcon(
+                                        modifier = Modifier.size(32.dp),
+                                        tint = if (isExpanded) CyberTeal else Color.Gray
                                     )
                                     Spacer(modifier = Modifier.width(16.dp))
                                     Text(playlist.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(onClick = { viewModel.deletePlaylist(playlist) }) {
+                                    IconButton(onClick = {
+                                        playlistToRename = playlist
+                                        renameNameInput = playlist.name
+                                        showRenameDialog = true
+                                    }) {
+                                        Icon(Icons.Default.Edit, contentDescription = "Renombrar", tint = CyberTeal)
+                                    }
+                                    IconButton(onClick = { playlistToDelete = playlist }) {
                                         Icon(Icons.Default.DeleteOutline, contentDescription = "Borrar", tint = WarningHotPink)
                                     }
                                     Icon(
@@ -4482,8 +12316,56 @@ fun PlaylistsDetailsScreen(viewModel: FtpViewModel) {
 
                             // Dynamic Track items in expand panel
                             if (isExpanded) {
-                                PlaylistTracksLoader(viewModel, playlist)
+                                PlaylistTracksLoader(viewModel, playlist, onNavigateToPlayer = onNavigateToPlayer)
                                 Spacer(modifier = Modifier.height(8.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showRenameDialog && playlistToRename != null) {
+            Dialog(onDismissRequest = { showRenameDialog = false }) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text("Renombrar Playlist ✏️", fontWeight = FontWeight.Bold, color = CyberTeal)
+                        OutlinedTextField(
+                            value = renameNameInput,
+                            onValueChange = { renameNameInput = it },
+                            label = { Text("Nuevo nombre de la lista") },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CyberTeal, focusedLabelColor = CyberTeal
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(onClick = { showRenameDialog = false }) {
+                                Text("CANCELAR", color = Color.Gray)
+                            }
+                            Button(
+                                onClick = {
+                                    if (renameNameInput.isNotEmpty()) {
+                                        viewModel.renamePlaylist(playlistToRename!!, renameNameInput)
+                                        renameNameInput = ""
+                                        showRenameDialog = false
+                                        playlistToRename = null
+                                        Toast.makeText(context, "Lista renombrada de forma exitosa", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark)
+                            ) {
+                                Text("GUARDAR")
                             }
                         }
                     }
@@ -4540,10 +12422,44 @@ fun PlaylistsDetailsScreen(viewModel: FtpViewModel) {
 }
 
 @Composable
-fun PlaylistTracksLoader(viewModel: FtpViewModel, playlist: Playlist) {
+fun PlaylistTracksLoader(viewModel: FtpViewModel, playlist: Playlist, onNavigateToPlayer: () -> Unit = {}) {
     val context = LocalContext.current
     val itemsFlow = remember(playlist.id) { viewModel.getItemsForPlaylist(playlist.id) }
     val items by itemsFlow.collectAsStateWithLifecycle(emptyList())
+    var playlistItemToRemove by remember { mutableStateOf<PlaylistItem?>(null) }
+
+    if (playlistItemToRemove != null) {
+        val item = playlistItemToRemove!!
+        AlertDialog(
+            onDismissRequest = { playlistItemToRemove = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.RemoveCircle, contentDescription = null, tint = WarningHotPink)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Quitar Canción", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = { Text("¿Estás seguro de que deseas quitar \"${item.fileName}\" de la playlist?", color = Color.LightGray) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.removePlaylistItem(item)
+                        playlistItemToRemove = null
+                        Toast.makeText(context, "Canción quitada de la lista", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink, contentColor = Color.White)
+                ) {
+                    Text("QUITAR", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { playlistItemToRemove = null }) {
+                    Text("CANCELAR", color = Color.Gray)
+                }
+            },
+            containerColor = CyberSurface
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -4572,6 +12488,7 @@ fun PlaylistTracksLoader(viewModel: FtpViewModel, playlist: Playlist) {
                         .fillMaxWidth()
                         .clickable {
                             AudioPlayerManager.playTrack(context, item, items)
+                            onNavigateToPlayer()
                         }
                         .padding(vertical = 10.dp, horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -4583,17 +12500,17 @@ fun PlaylistTracksLoader(viewModel: FtpViewModel, playlist: Playlist) {
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null, tint = SoftTeal, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(
+                        MarqueeText(
                             text = item.fileName,
                             color = Color.White,
                             fontSize = 13.sp,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            modifier = Modifier.weight(1f)
                         )
                     }
 
                     IconButton(
-                        onClick = { viewModel.removePlaylistItem(item) },
+                        onClick = { playlistItemToRemove = item },
                         modifier = Modifier.size(24.dp)
                     ) {
                         Icon(Icons.Default.RemoveCircleOutline, contentDescription = "Quitar", tint = WarningHotPink, modifier = Modifier.size(16.dp))
@@ -4667,7 +12584,8 @@ data class Podmark(
     val filePath: String,
     val positionMs: Long,
     val timestampText: String,
-    val createdAt: String
+    val createdAt: String,
+    val logoUri: String? = null
 )
 
 fun getPodmarks(context: android.content.Context): List<Podmark> {
@@ -4684,7 +12602,8 @@ fun getPodmarks(context: android.content.Context): List<Podmark> {
                     filePath = obj.optString("filePath", ""),
                     positionMs = obj.optLong("positionMs", 0L),
                     timestampText = obj.optString("timestampText", "00:00"),
-                    createdAt = obj.optString("createdAt", "")
+                    createdAt = obj.optString("createdAt", ""),
+                    logoUri = if (obj.has("logoUri")) obj.optString("logoUri", null) else null
                 )
             )
         }
@@ -4694,11 +12613,11 @@ fun getPodmarks(context: android.content.Context): List<Podmark> {
     return list
 }
 
-fun addPodmark(context: android.content.Context, trackName: String, filePath: String, positionMs: Long, timestampText: String): Boolean {
+fun addPodmark(context: android.content.Context, trackName: String, filePath: String, positionMs: Long, timestampText: String, logoUri: String? = null): Boolean {
     val list = getPodmarks(context).toMutableList()
     val sdf = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault())
     val currentDate = sdf.format(java.util.Date())
-    list.add(Podmark(trackName, filePath, positionMs, timestampText, currentDate))
+    list.add(Podmark(trackName, filePath, positionMs, timestampText, currentDate, logoUri))
     
     val array = org.json.JSONArray()
     for (pm in list) {
@@ -4708,6 +12627,9 @@ fun addPodmark(context: android.content.Context, trackName: String, filePath: St
         obj.put("positionMs", pm.positionMs)
         obj.put("timestampText", pm.timestampText)
         obj.put("createdAt", pm.createdAt)
+        if (pm.logoUri != null) {
+            obj.put("logoUri", pm.logoUri)
+        }
         array.put(obj)
     }
     val prefs = context.getSharedPreferences("player_podmarks", android.content.Context.MODE_PRIVATE)
@@ -4717,6 +12639,15 @@ fun addPodmark(context: android.content.Context, trackName: String, filePath: St
 fun deletePodmark(context: android.content.Context, index: Int): Boolean {
     val list = getPodmarks(context).toMutableList()
     if (index in list.indices) {
+        val deletedPm = list[index]
+        com.example.data.repository.TrashManager.trashPodmark(
+            context,
+            deletedPm.trackName,
+            deletedPm.filePath,
+            deletedPm.positionMs,
+            deletedPm.timestampText,
+            deletedPm.createdAt
+        )
         list.removeAt(index)
         val array = org.json.JSONArray()
         for (pm in list) {
@@ -4726,6 +12657,9 @@ fun deletePodmark(context: android.content.Context, index: Int): Boolean {
             obj.put("positionMs", pm.positionMs)
             obj.put("timestampText", pm.timestampText)
             obj.put("createdAt", pm.createdAt)
+            if (pm.logoUri != null) {
+                obj.put("logoUri", pm.logoUri)
+            }
             array.put(obj)
         }
         val prefs = context.getSharedPreferences("player_podmarks", android.content.Context.MODE_PRIVATE)
@@ -4749,9 +12683,16 @@ fun SliderPodmarksOverlay(
     podmarks: List<Podmark>,
     durationMs: Long,
     onSeekTo: (Long) -> Unit,
+    onPodmarkTripleClick: ((Podmark) -> Unit)? = null,
+    marcaInicio: Long? = null,
+    marcaFin: Long? = null,
     modifier: Modifier = Modifier
 ) {
-    if (durationMs <= 0 || podmarks.isEmpty()) return
+    if (durationMs <= 0) return
+    
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val clickCounts = remember { androidx.compose.runtime.mutableStateMapOf<String, Int>() }
+    val lastClickTimes = remember { androidx.compose.runtime.mutableStateMapOf<String, Long>() }
     
     BoxWithConstraints(modifier = modifier.fillMaxWidth().height(16.dp)) {
         val totalWidth = maxWidth
@@ -4765,18 +12706,80 @@ fun SliderPodmarksOverlay(
                 
                 Box(
                     modifier = Modifier
-                        .offset(x = xOffset - 9.dp, y = 0.dp)
+                        .offset(x = xOffset - 8.dp, y = 0.dp)
                         .clickable(
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                             indication = null
                         ) {
-                            onSeekTo(pm.positionMs)
+                            val key = pm.createdAt + "_" + pm.positionMs
+                            val current = clickCounts[key] ?: 0
+                            val now = System.currentTimeMillis()
+                            val last = lastClickTimes[key] ?: 0L
+                            
+                            val next = if (now - last > 1500) 1 else current + 1
+                            clickCounts[key] = next
+                            lastClickTimes[key] = now
+                            
+                            if (next >= 3) {
+                                clickCounts.remove(key)
+                                lastClickTimes.remove(key)
+                                if (onPodmarkTripleClick != null) {
+                                    onPodmarkTripleClick(pm)
+                                } else {
+                                    val fullList = getPodmarks(context)
+                                    val originalIdx = fullList.indexOfFirst { it.createdAt == pm.createdAt && it.positionMs == pm.positionMs }
+                                    if (originalIdx != -1) {
+                                        deletePodmark(context, originalIdx)
+                                        android.widget.Toast.makeText(context, "📍 Marca eliminada", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            } else {
+                                onSeekTo(pm.positionMs)
+                                android.widget.Toast.makeText(context, "📍 Buscado a ${pm.timestampText}. Pulsa 3 veces para borrar.", android.widget.Toast.LENGTH_SHORT).show()
+                            }
                         }
                 ) {
-                    Text(
-                        text = "📍",
-                        fontSize = 12.sp,
-                        modifier = Modifier.align(Alignment.Center)
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Default.Place,
+                        contentDescription = "Podmark",
+                        tint = androidx.compose.ui.graphics.Color.Red,
+                        modifier = Modifier.size(16.dp).align(Alignment.Center)
+                    )
+                }
+            }
+        }
+
+        // Draw start trim point in Blue (marcaInicio)
+        marcaInicio?.let { startPos ->
+            val fraction = startPos.toFloat() / durationMs.toFloat()
+            if (fraction in 0f..1f) {
+                val xOffset = startPadding + (usableWidth * fraction)
+                Box(
+                    modifier = Modifier.offset(x = xOffset - 9.dp, y = 0.dp)
+                ) {
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Default.Place,
+                        contentDescription = "Marca Inicio",
+                        tint = androidx.compose.ui.graphics.Color(0xFF2196F3),
+                        modifier = Modifier.size(18.dp).align(Alignment.Center)
+                    )
+                }
+            }
+        }
+
+        // Draw end trim point in Blue (marcaFin)
+        marcaFin?.let { endPos ->
+            val fraction = endPos.toFloat() / durationMs.toFloat()
+            if (fraction in 0f..1f) {
+                val xOffset = startPadding + (usableWidth * fraction)
+                Box(
+                    modifier = Modifier.offset(x = xOffset - 9.dp, y = 0.dp)
+                ) {
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Default.Place,
+                        contentDescription = "Marca Fin",
+                        tint = androidx.compose.ui.graphics.Color(0xFF2196F3),
+                        modifier = Modifier.size(18.dp).align(Alignment.Center)
                     )
                 }
             }
@@ -4788,17 +12791,80 @@ fun SliderPodmarksOverlay(
 fun PlayerTabSchema(viewModel: FtpViewModel, onNavigateToRecent: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val hapticFeedback = androidx.compose.ui.platform.LocalHapticFeedback.current
     val currentTrack by AudioPlayerManager.currentTrack.collectAsStateWithLifecycle()
     val isPlaying by AudioPlayerManager.isPlaying.collectAsStateWithLifecycle()
     val isBuffering by AudioPlayerManager.isBuffering.collectAsStateWithLifecycle()
+    val isDownloadingActiveTrack by AudioPlayerManager.isDownloadingActiveTrack.collectAsStateWithLifecycle()
     val currentPosition by AudioPlayerManager.currentPosition.collectAsStateWithLifecycle()
     val duration by AudioPlayerManager.duration.collectAsStateWithLifecycle()
     val isRecordingProtected by AudioPlayerManager.isRecordingProtectedMode.collectAsStateWithLifecycle()
+    val bufferingProgress by AudioPlayerManager.bufferingProgress.collectAsStateWithLifecycle()
+    val prefetchState by AudioPlayerManager.prefetchState.collectAsStateWithLifecycle()
+    val prefetchProgress by AudioPlayerManager.prefetchProgress.collectAsStateWithLifecycle()
+    val prefetchTrackName by AudioPlayerManager.prefetchTrackName.collectAsStateWithLifecycle()
+
+    val radioSongTitle by AudioPlayerManager.radioSongTitle.collectAsStateWithLifecycle()
+    val radioSongArtist by AudioPlayerManager.radioSongArtist.collectAsStateWithLifecycle()
+    val radioMetadataEnabledState by AudioPlayerManager.radioMetadataEnabled.collectAsStateWithLifecycle()
+
+    val radioDownloadSpeedKbps by AudioPlayerManager.radioDownloadSpeedKbps.collectAsStateWithLifecycle()
+    val radioSignalStability by AudioPlayerManager.radioSignalStability.collectAsStateWithLifecycle()
+    val radioHealthHistory by AudioPlayerManager.radioHealthHistory.collectAsStateWithLifecycle()
+    val currentPresetName by AudioPlayerManager.currentPresetName.collectAsStateWithLifecycle()
+    val isRadioReconnecting by AudioPlayerManager.isRadioReconnecting.collectAsStateWithLifecycle()
+
+    val queueList by AudioPlayerManager.playlistQueue.collectAsStateWithLifecycle()
+    val mainPrefs = remember { context.getSharedPreferences("ftp_hub_settings", android.content.Context.MODE_PRIVATE) }
+    var showLastTrackIndicator by remember { mutableStateOf(mainPrefs.getBoolean("show_last_track_indicator", true)) }
+    var rememberTrackPositionEnabled by remember { mutableStateOf(mainPrefs.getBoolean("remember_track_position_enabled", true)) }
+    var ultraFastLoadingEnabled by remember { mutableStateOf(mainPrefs.getBoolean("ultra_fast_loading_enabled", false)) }
+    var showRadioTelemetry by remember { mutableStateOf(mainPrefs.getBoolean("show_radio_telemetry", true)) }
+
+    // Audio Trimming States (USER REQUEST)
+    var isTrimModeActive by remember { mutableStateOf(false) }
+    var marcaInicio by remember { mutableStateOf<Long?>(null) }
+    var marcaFin by remember { mutableStateOf<Long?>(null) }
+    var showSaveClipDialog by remember { mutableStateOf(false) }
+    var clipSaveName by remember { mutableStateOf("") }
+
+    androidx.compose.runtime.DisposableEffect(context) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "show_last_track_indicator") {
+                showLastTrackIndicator = mainPrefs.getBoolean("show_last_track_indicator", true)
+            } else if (key == "remember_track_position_enabled") {
+                rememberTrackPositionEnabled = mainPrefs.getBoolean("remember_track_position_enabled", true)
+            } else if (key == "ultra_fast_loading_enabled") {
+                ultraFastLoadingEnabled = mainPrefs.getBoolean("ultra_fast_loading_enabled", false)
+            } else if (key == "show_radio_telemetry") {
+                showRadioTelemetry = mainPrefs.getBoolean("show_radio_telemetry", true)
+            }
+        }
+        mainPrefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            mainPrefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
+    val isLastTrackInQueue = remember(currentTrack, queueList) {
+        queueList.size > 1 && currentTrack != null && queueList.last().filePath == currentTrack?.filePath
+    }
+
+    val isShuffleEnabled by AudioPlayerManager.isShuffleEnabled.collectAsStateWithLifecycle()
+    val repeatMode by AudioPlayerManager.repeatMode.collectAsStateWithLifecycle()
 
     var refreshPodmarksTrigger by remember { mutableStateOf(0) }
     val currentTrackPodmarks = remember(refreshPodmarksTrigger, currentTrack?.filePath) {
         val path = currentTrack?.filePath ?: ""
-        getPodmarks(context).filter { it.filePath == path }
+        if (path.isEmpty()) emptyList() else getPodmarks(context).filter { it.filePath == path }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(currentPosition, isPlaying, isTrimModeActive, marcaInicio, marcaFin) {
+        if (isTrimModeActive && isPlaying && marcaInicio != null && marcaFin != null) {
+            if (currentPosition >= marcaFin!!) {
+                AudioPlayerManager.pausePlayback()
+                showSaveClipDialog = true
+            }
+        }
     }
 
     // Smooth record/disc rotation state
@@ -4814,6 +12880,171 @@ fun PlayerTabSchema(viewModel: FtpViewModel, onNavigateToRecent: () -> Unit) {
     )
 
     val onlineRadios by viewModel.onlineRadios.collectAsStateWithLifecycle()
+
+    // Highly polished dialog window popup when loading/buffering a remote FTP track (user request)
+    val isBufferingFTPShow = false // Disabled per user request - inline status card is used instead
+    if (isBufferingFTPShow) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { /* Modal: do not dismiss on background tap */ }) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                border = BorderStroke(1.5.dp, CyberTeal),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudDownload,
+                            contentDescription = "Descargando FTP",
+                            tint = CyberTeal,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Streaming desde FTP",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Text(
+                        text = if (isDownloadingActiveTrack) prefetchTrackName else (currentTrack?.fileName ?: "Archivo de audio"),
+                        color = CyberLight,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.size(80.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            progress = if (isDownloadingActiveTrack) prefetchProgress else bufferingProgress,
+                            color = CyberTeal,
+                            trackColor = CyberCharcoal,
+                            strokeWidth = 6.dp,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "${((if (isDownloadingActiveTrack) prefetchProgress else bufferingProgress) * 100).toInt()}%",
+                                color = CyberTeal,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = if (isDownloadingActiveTrack) "Precarga" else "Búfer",
+                                color = Color.Gray,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Text(
+                        text = "Descargando pista remota al búfer temporal local.\nEn redes 5G/4G esto suele tomar unos segundos.",
+                        color = Color.Gray,
+                        fontSize = 10.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        lineHeight = 14.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                scope.launch(Dispatchers.IO) {
+                                    try {
+                                        com.example.data.repository.FtpClientManager.disconnect()
+                                        val reconnected = com.example.data.repository.FtpClientManager.autoReconnect(context)
+                                        kotlinx.coroutines.withContext(Dispatchers.Main) {
+                                            if (reconnected) {
+                                                Toast.makeText(context, "🔄 ¡FTP re-sintonizado con éxito! Reintentando...", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                Toast.makeText(context, "⚠️ Intentando descarga de pista directamente...", Toast.LENGTH_SHORT).show()
+                                            }
+                                            currentTrack?.let { track ->
+                                                AudioPlayerManager.playTrack(context, track)
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        kotlinx.coroutines.withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, "❌ Error al reconectar: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = CyberTeal,
+                                contentColor = CyberDark
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1.1f),
+                            contentPadding = PaddingValues(vertical = 10.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = "Reintentar", modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Reconectar FTP", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                AudioPlayerManager.stopPlayback()
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = WarningHotPink
+                            ),
+                            border = BorderStroke(1.dp, WarningHotPink.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(0.9f),
+                            contentPadding = PaddingValues(vertical = 10.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Cancelar", modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Cancelar", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -4839,7 +13070,7 @@ fun PlayerTabSchema(viewModel: FtpViewModel, onNavigateToRecent: () -> Unit) {
                 Text(
                     "No hay audio reproduciéndose",
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = CyberLight,
                     fontSize = 16.sp
                 )
                 Text(
@@ -4851,108 +13082,711 @@ fun PlayerTabSchema(viewModel: FtpViewModel, onNavigateToRecent: () -> Unit) {
             }
         } else {
             val track = currentTrack!!
-
-            Spacer(modifier = Modifier.height(8.dp))
-            SoundWaveVisualizer(
-                isPlaying = isPlaying,
-                modifier = Modifier
-                    .height(32.dp)
-                    .align(Alignment.CenterHorizontally)
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-
             val isRadio = track.playlistId == -2
-            if (!isRadio) {
-                Spacer(modifier = Modifier.height(16.dp))
-                RotatingCdPlayer(
-                    filePath = track.filePath,
-                    isPlaying = isPlaying,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                )
-                Spacer(modifier = Modifier.height(24.dp))
+            val displayTrackName = if (isRadio && radioMetadataEnabledState && !radioSongTitle.isNullOrBlank()) {
+                radioSongTitle!!
             } else {
-                Spacer(modifier = Modifier.height(16.dp))
+                track.fileName
+            }
+            val displayArtistName = if (isRadio && radioMetadataEnabledState && !radioSongTitle.isNullOrBlank()) {
+                radioSongArtist ?: track.fileName
+            } else null
+
+            val radioPlayPos by AudioPlayerManager.radioPlayPositionSec.collectAsStateWithLifecycle()
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            if (!isRadio) {
+                Spacer(modifier = Modifier.height(4.dp))
+
+                val seekBy = { amountSec: Int ->
+                    val newPos = (currentPosition + amountSec * 1000).coerceIn(0L, duration)
+                    AudioPlayerManager.seekTo(newPos)
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    // Left controls: Rewind 10s, 30s and Shuffle
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        IconButton(
+                            onClick = {
+                                AudioPlayerManager.toggleShuffle()
+                                val active = !isShuffleEnabled
+                                val msg = if (active) "🔀 Modo Aleatorio activado" else "🔁 Reproducción secuencial activa"
+                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(44.dp).testTag("btn_shuffle_cd_side")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Shuffle,
+                                contentDescription = "Aleatorio",
+                                tint = if (isShuffleEnabled) CyberTeal else Color.Gray,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { seekBy(-10) },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Default.RotateLeft,
+                                    contentDescription = "-10s",
+                                    tint = CyberTeal,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Text("10s", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        IconButton(
+                            onClick = { seekBy(-30) },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Default.RotateLeft,
+                                    contentDescription = "-30s",
+                                    tint = CyberTeal,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Text("30s", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    // Centered Rotating CD
+                    RotatingCdPlayer(
+                        filePath = track.filePath,
+                        isPlaying = isPlaying,
+                        modifier = Modifier.size(180.dp)
+                    )
+
+                    // Right controls: Fast-forward 10s, 30s and Repeat
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val repeatIcon = when (repeatMode) {
+                            PlaybackRepeatMode.ONE -> Icons.Default.RepeatOne
+                            else -> Icons.Default.Repeat
+                        }
+                        val repeatTint = when (repeatMode) {
+                            PlaybackRepeatMode.NONE -> Color.Gray
+                            else -> CyberTeal
+                        }
+                        IconButton(
+                            onClick = {
+                                AudioPlayerManager.toggleRepeatMode()
+                                val nextRepeatMode = when (repeatMode) {
+                                    PlaybackRepeatMode.NONE -> PlaybackRepeatMode.ALL
+                                    PlaybackRepeatMode.ALL -> PlaybackRepeatMode.ONE
+                                    PlaybackRepeatMode.ONE -> PlaybackRepeatMode.NONE
+                                }
+                                val msg = when (nextRepeatMode) {
+                                    PlaybackRepeatMode.ALL -> "🔁 Repetir lista completa activado"
+                                    PlaybackRepeatMode.ONE -> "🔂 Repetir canción actual activado"
+                                    PlaybackRepeatMode.NONE -> "➡ Repetir desactivado / secuencial"
+                                }
+                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(44.dp).testTag("btn_repeat_cd_side")
+                        ) {
+                            Icon(
+                                imageVector = repeatIcon,
+                                contentDescription = "Repetir",
+                                tint = repeatTint,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { seekBy(10) },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Default.RotateRight,
+                                    contentDescription = "+10s",
+                                    tint = CyberTeal,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Text("10s", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        IconButton(
+                            onClick = { seekBy(30) },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Default.RotateRight,
+                                    contentDescription = "+30s",
+                                    tint = CyberTeal,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Text("30s", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+            } else {
+                Spacer(modifier = Modifier.height(4.dp))
                 val matchedRadio = onlineRadios.find { it.url == track.filePath }
                 val logoUri = matchedRadio?.logoUri
-                Card(
+
+                val skipBy = { amountSec: Int ->
+                    AudioPlayerManager.skipSeconds(amountSec)
+                }
+
+                Row(
                     modifier = Modifier
-                        .size(72.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .align(Alignment.CenterHorizontally),
-                    colors = CardDefaults.cardColors(containerColor = CyberCharcoal),
-                    border = androidx.compose.foundation.BorderStroke(1.5.dp, CyberTeal.copy(alpha = 0.5f))
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        if (!logoUri.isNullOrBlank()) {
-                            AsyncImage(
-                                model = logoUri,
-                                contentDescription = "Logo Emisora",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
+                    // Left controls: Rewind 10s, 30s and Shuffle
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        IconButton(
+                            onClick = {
+                                AudioPlayerManager.toggleShuffle()
+                                val active = !isShuffleEnabled
+                                val msg = if (active) "🔀 Modo Aleatorio activado" else "🔁 Reproducción secuencial activa"
+                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(44.dp).testTag("btn_shuffle_cd_side")
+                        ) {
                             Icon(
-                                imageVector = Icons.Default.Radio,
-                                contentDescription = "Radio",
+                                imageVector = Icons.Default.Shuffle,
+                                contentDescription = "Aleatorio",
+                                tint = if (isShuffleEnabled) CyberTeal else Color.Gray,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { skipBy(-10) },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Default.RotateLeft,
+                                    contentDescription = "-10s",
+                                    tint = CyberTeal,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Text("10s", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        IconButton(
+                            onClick = { skipBy(-30) },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Default.RotateLeft,
+                                    contentDescription = "-30s",
+                                    tint = CyberTeal,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Text("30s", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    // Centered smaller Rotating CD with Radio Logo Support
+                    RotatingCdPlayer(
+                        filePath = track.filePath,
+                        isPlaying = isPlaying,
+                        modifier = Modifier.size(180.dp),
+                        logoUri = logoUri
+                    )
+
+                    // Right controls: Fast-forward 10s, 30s and Repeat
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val repeatIcon = when (repeatMode) {
+                            PlaybackRepeatMode.ONE -> Icons.Default.RepeatOne
+                            else -> Icons.Default.Repeat
+                        }
+                        val repeatValueTint = when (repeatMode) {
+                            PlaybackRepeatMode.NONE -> Color.Gray
+                            else -> CyberTeal
+                        }
+                        IconButton(
+                            onClick = {
+                                AudioPlayerManager.toggleRepeatMode()
+                                val nextRepeat = when (repeatMode) {
+                                    PlaybackRepeatMode.NONE -> PlaybackRepeatMode.ALL
+                                    PlaybackRepeatMode.ALL -> PlaybackRepeatMode.ONE
+                                    PlaybackRepeatMode.ONE -> PlaybackRepeatMode.NONE
+                                }
+                                val msg = when (nextRepeat) {
+                                    PlaybackRepeatMode.ALL -> "🔁 Repetir lista completa activado"
+                                    PlaybackRepeatMode.ONE -> "🔂 Repetir canción actual activado"
+                                    PlaybackRepeatMode.NONE -> "➡ Repetir desactivado / secuencial"
+                                }
+                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(44.dp).testTag("btn_repeat_cd_side")
+                        ) {
+                            Icon(
+                                imageVector = repeatIcon,
+                                contentDescription = "Repetir",
+                                tint = repeatValueTint,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { skipBy(10) },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Default.RotateRight,
+                                    contentDescription = "+10s",
+                                    tint = CyberTeal,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Text("10s", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        IconButton(
+                            onClick = { skipBy(30) },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Default.RotateRight,
+                                    contentDescription = "+30s",
+                                    tint = CyberTeal,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Text("30s", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+
+            // Metadata Column Info - Organized on separate lines (Full Track Name first, then Provenance + Icons side-by-side)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // Line 1: Track Name (solo full-width row)
+                MarqueeText(
+                    text = displayTrackName,
+                    fontWeight = FontWeight.Bold,
+                    color = CyberLight,
+                    fontSize = 18.sp,
+                    maxLines = 1,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (displayArtistName != null) {
+                    MarqueeText(
+                        text = displayArtistName,
+                        fontWeight = FontWeight.Normal,
+                        color = Color.Gray,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                // Line 2: Audio Source Type and Actions Group Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    val activeConn by viewModel.activeConnection.collectAsStateWithLifecycle()
+                    val isConnected by viewModel.isConnected.collectAsStateWithLifecycle()
+                    val lastConnectedHost by viewModel.lastConnectedHost.collectAsStateWithLifecycle()
+                    val connectedHost = lastConnectedHost ?: activeConn?.host ?: ""
+                    val isLocalIp = activeConn != null && isConnected && connectedHost == activeConn?.localIp
+
+                    val currentTrackIndex = if (track != null && queueList.isNotEmpty()) {
+                        queueList.indexOfFirst { it.filePath == track.filePath }
+                    } else {
+                        -1
+                    }
+                    val totalTracks = queueList.size
+
+                    val audioSourceText = when {
+                        track.playlistId == -2 -> "Radio Online 📻"
+                        track.filePath.startsWith("/") -> "Almacenamiento Interno 📱"
+                        else -> {
+                            if (isLocalIp) "Servidor FTP (Local) 🏠" else "Servidor FTP (Remoto) 🌐"
+                        }
+                    }
+
+                    val displayText = if (track.playlistId != -2 && currentTrackIndex != -1) {
+                        "$audioSourceText  •  Pista ${currentTrackIndex + 1} de $totalTracks"
+                    } else {
+                        audioSourceText
+                    }
+
+                    Text(
+                        text = displayText,
+                        color = CyberTeal,
+                        fontSize = 12.sp,
+                        modifier = Modifier.weight(0.9f, fill = false),
+                        overflow = TextOverflow.Ellipsis,
+                        maxLines = 1
+                    )
+
+                    // Heart Favorites and Podmark Buttons Grouped
+                    val favorites by viewModel.favoriteTracks.collectAsStateWithLifecycle()
+                    val isFav = favorites.any { it.filePath == track.filePath }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        val isRadio = track.playlistId == -2
+                        if (isRadio) {
+                            val radioElapsed by AudioPlayerManager.radioElapsedTimeSec.collectAsStateWithLifecycle()
+                            val currentLimitMins by AudioPlayerManager.radioBufferLimitMins.collectAsStateWithLifecycle()
+                            val bufferProgress = remember(radioElapsed, currentLimitMins) {
+                                (radioElapsed.toFloat() / (currentLimitMins * 60f)).coerceIn(0f, 1f)
+                            }
+                            
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .background(CyberCharcoal, CircleShape)
+                                    .clickable {
+                                        val options = listOf(30, 60, 120, 180, 240)
+                                        val currentIdx = options.indexOf(currentLimitMins)
+                                        val nextLimit = if (currentIdx == -1) 120 else options[(currentIdx + 1) % options.size]
+                                        AudioPlayerManager.updateRadioBufferLimitMins(context, nextLimit)
+                                        Toast.makeText(context, "Buffer de grabación: $nextLimit minutos ⏱️", Toast.LENGTH_SHORT).show()
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    progress = { bufferProgress },
+                                    modifier = Modifier.size(30.dp),
+                                    color = CyberTeal,
+                                    strokeWidth = 2.dp,
+                                    trackColor = Color.Gray.copy(alpha = 0.2f)
+                                )
+                                Text(
+                                    text = "${currentLimitMins}m",
+                                    color = Color.White,
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(2.dp))
+                        }
+
+                        IconButton(
+                            onClick = {
+                                val currentPosMs = currentPosition
+                                val timestampTxt = formatMs(currentPosition)
+                                val matchedRad = onlineRadios.find { it.url == track.filePath }
+                                val matchedLoc = viewModel.scannedLocalTracks.value.find { it.filePath == track.filePath }
+                                val foundLogoUri = matchedRad?.logoUri ?: matchedLoc?.logoUri
+                                val added = addPodmark(context, track.fileName, track.filePath, currentPosMs, timestampTxt, foundLogoUri)
+                                if (added) {
+                                    refreshPodmarksTrigger++
+                                    Toast.makeText(context, "📍 Podmark guardado a las $timestampTxt", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Bookmark,
+                                contentDescription = "Crear Podmark",
                                 tint = CyberTeal,
-                                modifier = Modifier.size(36.dp)
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                if (!isTrimModeActive) {
+                                    isTrimModeActive = true
+                                    marcaInicio = currentPosition
+                                    marcaFin = null
+                                    val timestampTxt = formatMs(currentPosition)
+                                    Toast.makeText(context, "✂️ Modo Recorte: Inicio fijado a las $timestampTxt. Pulsa de nuevo para fijar el fin.", Toast.LENGTH_LONG).show()
+                                } else if (marcaFin == null) {
+                                    val posTemp = currentPosition
+                                    val startVal = marcaInicio ?: 0L
+                                    if (posTemp <= startVal) {
+                                        Toast.makeText(context, "⚠️ El fin del recorte debe ser mayor que el inicio", Toast.LENGTH_SHORT).show()
+                                        return@IconButton
+                                    }
+                                    if (posTemp - startVal < 100) {
+                                        Toast.makeText(context, "⚠️ El fragmento debe ser de al menos 100ms", Toast.LENGTH_SHORT).show()
+                                        return@IconButton
+                                    }
+                                    marcaFin = posTemp
+                                    val timestampTxt = formatMs(posTemp)
+                                    Toast.makeText(context, "✂️ Fin fijado a las $timestampTxt. Iniciando reproducción de prueba...", Toast.LENGTH_LONG).show()
+                                    
+                                    val isRadio = track.playlistId == -2
+                                    if (isRadio) {
+                                        AudioPlayerManager.seekRadioTimeShift((startVal / 1000).toInt())
+                                    } else {
+                                        AudioPlayerManager.seekTo(startVal)
+                                    }
+                                    AudioPlayerManager.resumePlayback()
+                                } else {
+                                    isTrimModeActive = false
+                                    marcaInicio = null
+                                    marcaFin = null
+                                    Toast.makeText(context, "✂️ Modo Recorte desactivado", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCut,
+                                contentDescription = "Modo Recorte (milisegundos)",
+                                tint = if (isTrimModeActive) {
+                                    if (marcaFin != null) androidx.compose.ui.graphics.Color(0xFF2196F3) else CyberTeal
+                                } else Color.Gray,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                viewModel.toggleFavorite(
+                                    filePath = track.filePath,
+                                    fileName = track.fileName,
+                                    isLocal = track.filePath.startsWith("/"),
+                                    artist = "Desconocido"
+                                )
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                contentDescription = "Favorito",
+                                tint = if (isFav) WarningHotPink else Color.Gray,
+                                modifier = Modifier.size(24.dp)
                             )
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(24.dp))
             }
 
-            // Metadata Row Info with Favorite hearts button
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = track.fileName,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        overflow = TextOverflow.Ellipsis,
-                        maxLines = 1
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = if (track.filePath.startsWith("/")) "Dispositivo Local" else "Servidor Remoto",
-                        color = CyberTeal,
-                        fontSize = 12.sp,
-                        overflow = TextOverflow.Ellipsis,
-                        maxLines = 1
-                    )
-                }
+            Spacer(modifier = Modifier.height(6.dp))
 
-                // Heart Favorites Button
-                val favorites by viewModel.favoriteTracks.collectAsStateWithLifecycle()
-                val isFav = favorites.any { it.filePath == track.filePath }
-                IconButton(
-                    onClick = {
-                        viewModel.toggleFavorite(
-                            filePath = track.filePath,
-                            fileName = track.fileName,
-                            isLocal = track.filePath.startsWith("/"),
-                            artist = "Desconocido"
-                        )
-                    }
+            // AUDIO TRIMMING FINE ADJUSTMENT PANEL
+            if (isTrimModeActive) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, CyberTeal.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 6.dp)
                 ) {
-                    Icon(
-                        imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = "Favorito",
-                        tint = if (isFav) WarningHotPink else Color.Gray,
-                        modifier = Modifier.size(28.dp)
-                    )
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCut,
+                                contentDescription = null,
+                                tint = CyberTeal,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Ajuste Fino de Recorte ✂️",
+                                color = CyberTeal,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        
+                        androidx.compose.material3.HorizontalDivider(color = Color.Gray.copy(alpha = 0.15f), thickness = 1.dp)
+
+                        // Adjust Start Mark
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "🔴 Inicio: ${if (marcaInicio != null) formatMs(marcaInicio!!) else "No fijado"}",
+                                    color = if (marcaInicio != null) Color.White else Color.Gray,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (marcaInicio != null) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Button(
+                                            onClick = {
+                                                marcaInicio = maxOf(0L, (marcaInicio ?: 0L) - 1000L)
+                                                val isRadio = track.playlistId == -2
+                                                if (isRadio) AudioPlayerManager.seekRadioTimeShift((marcaInicio!! / 1000).toInt())
+                                                else AudioPlayerManager.seekTo(marcaInicio!!)
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal),
+                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 1.dp),
+                                            modifier = Modifier.height(24.dp).widthIn(min = 34.dp)
+                                        ) {
+                                            Text("-1s", color = CyberTeal, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Button(
+                                            onClick = {
+                                                marcaInicio = maxOf(0L, (marcaInicio ?: 0L) - 100L)
+                                                val isRadio = track.playlistId == -2
+                                                if (isRadio) AudioPlayerManager.seekRadioTimeShift((marcaInicio!! / 1000).toInt())
+                                                else AudioPlayerManager.seekTo(marcaInicio!!)
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal),
+                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 1.dp),
+                                            modifier = Modifier.height(24.dp).widthIn(min = 34.dp)
+                                        ) {
+                                            Text("-100ms", color = CyberTeal, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Button(
+                                            onClick = {
+                                                val isRadio = track.playlistId == -2
+                                                val limit = marcaFin ?: if (isRadio) (AudioPlayerManager.radioElapsedTimeSec.value * 1000L) else duration
+                                                marcaInicio = minOf(limit, (marcaInicio ?: 0L) + 100L)
+                                                if (isRadio) AudioPlayerManager.seekRadioTimeShift((marcaInicio!! / 1000).toInt())
+                                                else AudioPlayerManager.seekTo(marcaInicio!!)
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal),
+                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 1.dp),
+                                            modifier = Modifier.height(24.dp).widthIn(min = 34.dp)
+                                        ) {
+                                            Text("+100ms", color = CyberTeal, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Button(
+                                            onClick = {
+                                                val isRadio = track.playlistId == -2
+                                                val limit = marcaFin ?: if (isRadio) (AudioPlayerManager.radioElapsedTimeSec.value * 1000L) else duration
+                                                marcaInicio = minOf(limit, (marcaInicio ?: 0L) + 1000L)
+                                                if (isRadio) AudioPlayerManager.seekRadioTimeShift((marcaInicio!! / 1000).toInt())
+                                                else AudioPlayerManager.seekTo(marcaInicio!!)
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal),
+                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 1.dp),
+                                            modifier = Modifier.height(24.dp).widthIn(min = 34.dp)
+                                        ) {
+                                            Text("+1s", color = CyberTeal, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Adjust End Mark
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "🔵 Fin: ${if (marcaFin != null) formatMs(marcaFin!!) else "Escuchando para marcar"}",
+                                    color = if (marcaFin != null) CyberTeal else Color.LightGray,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (marcaFin != null) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Button(
+                                            onClick = {
+                                                val limit = marcaInicio ?: 0L
+                                                marcaFin = maxOf(limit, (marcaFin ?: 0L) - 1000L)
+                                                val isRadio = track.playlistId == -2
+                                                if (isRadio) AudioPlayerManager.seekRadioTimeShift((marcaFin!! / 1000).toInt())
+                                                else AudioPlayerManager.seekTo(marcaFin!!)
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal),
+                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 1.dp),
+                                            modifier = Modifier.height(24.dp).widthIn(min = 34.dp)
+                                        ) {
+                                            Text("-1s", color = CyberTeal, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Button(
+                                            onClick = {
+                                                val limit = marcaInicio ?: 0L
+                                                marcaFin = maxOf(limit, (marcaFin ?: 0L) - 100L)
+                                                val isRadio = track.playlistId == -2
+                                                if (isRadio) AudioPlayerManager.seekRadioTimeShift((marcaFin!! / 1000).toInt())
+                                                else AudioPlayerManager.seekTo(marcaFin!!)
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal),
+                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 1.dp),
+                                            modifier = Modifier.height(24.dp).widthIn(min = 34.dp)
+                                        ) {
+                                            Text("-100ms", color = CyberTeal, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Button(
+                                            onClick = {
+                                                val isRadio = track.playlistId == -2
+                                                val limit = if (isRadio) (AudioPlayerManager.radioElapsedTimeSec.value * 1000L) else duration
+                                                marcaFin = minOf(limit, (marcaFin ?: 0L) + 100L)
+                                                if (isRadio) AudioPlayerManager.seekRadioTimeShift((marcaFin!! / 1000).toInt())
+                                                else AudioPlayerManager.seekTo(marcaFin!!)
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal),
+                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 1.dp),
+                                            modifier = Modifier.height(24.dp).widthIn(min = 34.dp)
+                                        ) {
+                                            Text("+100ms", color = CyberTeal, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Button(
+                                            onClick = {
+                                                val isRadio = track.playlistId == -2
+                                                val limit = if (isRadio) (AudioPlayerManager.radioElapsedTimeSec.value * 1000L) else duration
+                                                marcaFin = minOf(limit, (marcaFin ?: 0L) + 1000L)
+                                                if (isRadio) AudioPlayerManager.seekRadioTimeShift((marcaFin!! / 1000).toInt())
+                                                else AudioPlayerManager.seekTo(marcaFin!!)
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal),
+                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 1.dp),
+                                            modifier = Modifier.height(24.dp).widthIn(min = 34.dp)
+                                        ) {
+                                            Text("+1s", color = CyberTeal, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
 
             // Buffering progress loader details
             if (isBuffering) {
@@ -4963,84 +13797,58 @@ fun PlayerTabSchema(viewModel: FtpViewModel, onNavigateToRecent: () -> Unit) {
                 ) {
                     CircularProgressIndicator(color = CyberTeal, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Descargando archivo para reproducir...", color = Color.Gray, fontSize = 11.sp)
+                    Text(
+                        text = if (isRadio) "Sintonizando emisión en vivo..." else "Descargando archivo para reproducir...",
+                        color = Color.Gray,
+                        fontSize = 11.sp
+                    )
                 }
             }
 
             // Timelines and Slider Controls
             if (isRadio) {
                 val radioElapsed by AudioPlayerManager.radioElapsedTimeSec.collectAsStateWithLifecycle()
-                val radioPlayPos by AudioPlayerManager.radioPlayPositionSec.collectAsStateWithLifecycle()
                 val isRadioLive by AudioPlayerManager.isRadioLiveMode.collectAsStateWithLifecycle()
                 val totalRecBytes by AudioPlayerManager.totalRecordedBytes.collectAsStateWithLifecycle()
+                val currentLimitMins by AudioPlayerManager.radioBufferLimitMins.collectAsStateWithLifecycle()
+                val bufferProgress = remember(radioElapsed, currentLimitMins) {
+                    (radioElapsed.toFloat() / (currentLimitMins * 60f)).coerceIn(0f, 1f)
+                }
 
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    // Header Status card (Live / Timeshift)
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isRadioLive) Color.Red.copy(alpha = 0.15f) else CyberTeal.copy(alpha = 0.15f)
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (isRadioLive) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(10.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.Red)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    "EMISIÓN EN DIRECTO",
-                                    color = Color.Red,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 1.sp
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Default.History,
-                                    contentDescription = null,
-                                    tint = CyberTeal,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    "REPRODUCCIÓN EN TIMESHIFT (RETRASADO)",
-                                    color = CyberTeal,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 1.sp
-                                )
-                            }
-                        }
-                    }
-
                     // Timeshift Seek Slider
                     Column(modifier = Modifier.fillMaxWidth()) {
                         SliderPodmarksOverlay(
-                            podmarks = currentTrackPodmarks,
-                            durationMs = maxOf(1, radioElapsed).toLong() * 1000L,
-                            onSeekTo = { posMs ->
-                                AudioPlayerManager.seekRadioTimeShift((posMs / 1000L).toInt())
-                            }
+                             podmarks = currentTrackPodmarks,
+                             durationMs = maxOf(1, radioElapsed).toLong() * 1000L,
+                             onSeekTo = { posMs ->
+                                 AudioPlayerManager.seekRadioTimeShift((posMs / 1000L).toInt())
+                             },
+                             onPodmarkTripleClick = { pm ->
+                                 val fullList = getPodmarks(context)
+                                 val originalIdx = fullList.indexOfFirst { it.createdAt == pm.createdAt && it.positionMs == pm.positionMs }
+                                 if (originalIdx != -1) {
+                                     deletePodmark(context, originalIdx)
+                                     refreshPodmarksTrigger++
+                                     Toast.makeText(context, "📍 Marca de radio eliminada", Toast.LENGTH_SHORT).show()
+                                 }
+                             },
+                             marcaInicio = if (isTrimModeActive) marcaInicio else null,
+                             marcaFin = if (isTrimModeActive) marcaFin else null
                         )
                         Slider(
                             value = radioPlayPos.toFloat(),
-                            onValueChange = { AudioPlayerManager.seekRadioTimeShift(it.toInt()) },
+                            onValueChange = { 
+                                AudioPlayerManager.seekRadioTimeShift(it.toInt()) 
+                            },
                             valueRange = 0f..maxOf(1f, radioElapsed.toFloat()),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 0.dp),
                             colors = SliderDefaults.colors(
                                 thumbColor = if (isRadioLive) Color.Red else CyberTeal,
                                 activeTrackColor = if (isRadioLive) Color.Red else CyberTeal,
@@ -5054,25 +13862,47 @@ fun PlayerTabSchema(viewModel: FtpViewModel, onNavigateToRecent: () -> Unit) {
                                 .padding(horizontal = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text(formatSec(radioPlayPos), color = Color.Gray, fontSize = 12.sp)
-                            Text("Total buffer: " + formatSec(radioElapsed), color = Color.Gray, fontSize = 12.sp)
+                            Text(if (radioElapsed > 0) formatSec(radioPlayPos) else "", color = Color.Gray, fontSize = 12.sp)
+                            Text(if (radioElapsed > 0) "Total buffer: " + formatSec(radioElapsed) else "", color = Color.Gray, fontSize = 12.sp)
                         }
                     }
 
-                    // MAIN TACTILE RADIO CONTROLS: REWIND, STOP, PLAY/PAUSE, FORWARD
+                    // MAIN TACTILE RADIO CONTROLS: LOCK PADLOCK, STOP, PLAY/PAUSE, LIVE/TIMESHIFT DYNAMIC LOGO BUTTON
+                    var tapUnlockCountRadio by remember { mutableStateOf(0) }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // REWIND 30s
-                        IconButton(
-                            onClick = { AudioPlayerManager.skipSeconds(-30) }
+                        // LOCK/UNLOCK PADLOCK BUTTON
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .background(if (isRecordingProtected) WarningHotPink.copy(alpha = 0.2f) else CyberCharcoal, CircleShape)
+                                .border(1.dp, if (isRecordingProtected) WarningHotPink else Color.Gray.copy(alpha = 0.5f), CircleShape)
+                                .clickable {
+                                    hapticFeedback.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                    if (isRecordingProtected) {
+                                        tapUnlockCountRadio++
+                                        if (tapUnlockCountRadio >= 3) {
+                                            AudioPlayerManager.setRecordingProtectedMode(false)
+                                            Toast.makeText(context, "Modo Seguro DESACTIVADO", Toast.LENGTH_SHORT).show()
+                                            tapUnlockCountRadio = 0
+                                        }
+                                    } else {
+                                        AudioPlayerManager.setRecordingProtectedMode(true)
+                                        Toast.makeText(context, "Modo Seguro ACTIVADO", Toast.LENGTH_SHORT).show()
+                                        tapUnlockCountRadio = 0
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.RotateLeft, contentDescription = "Retroceder 30 Segundos", tint = Color.LightGray, modifier = Modifier.size(24.dp))
-                                Text("-30s", fontSize = 9.sp, color = CyberTeal)
-                            }
+                            Icon(
+                                imageVector = if (isRecordingProtected) Icons.Default.Lock else Icons.Default.LockOpen,
+                                contentDescription = "Bloqueo Seguro (Modo Seguro)",
+                                tint = if (isRecordingProtected) WarningHotPink else CyberTeal,
+                                modifier = Modifier.size(24.dp)
+                            )
                         }
 
                         // STOP BUTTON
@@ -5082,7 +13912,8 @@ fun PlayerTabSchema(viewModel: FtpViewModel, onNavigateToRecent: () -> Unit) {
                                 .background(if (isRecordingProtected) CyberGrey else CyberCharcoal, CircleShape)
                                 .clickable {
                                     if (isRecordingProtected) {
-                                        Toast.makeText(context, "🚫 Botón STOP bloqueado por el Modo Seguro. Desactívalo pulsando largo 3s el de abajo.", Toast.LENGTH_LONG).show()
+                                        hapticFeedback.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                        Toast.makeText(context, "🚫 Botón STOP bloqueado por el Modo Seguro. Da 3 toques en el candado para desbloquear.", Toast.LENGTH_LONG).show()
                                     } else {
                                         AudioPlayerManager.stopRadioStream()
                                     }
@@ -5102,7 +13933,9 @@ fun PlayerTabSchema(viewModel: FtpViewModel, onNavigateToRecent: () -> Unit) {
                             modifier = Modifier
                                 .size(72.dp)
                                 .background(CyberTeal, CircleShape)
-                                .clickable { AudioPlayerManager.togglePlayPause(context) },
+                                .clickable { 
+                                    AudioPlayerManager.togglePlayPause(context) 
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -5113,13 +13946,45 @@ fun PlayerTabSchema(viewModel: FtpViewModel, onNavigateToRecent: () -> Unit) {
                             )
                         }
 
-                        // FAST FORWARD 30s
-                        IconButton(
-                            onClick = { AudioPlayerManager.skipSeconds(30) }
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.RotateRight, contentDescription = "Adelantar 30 Segundos", tint = Color.LightGray, modifier = Modifier.size(24.dp))
-                                Text("+30s", fontSize = 9.sp, color = CyberTeal)
+                        // DYNAMIC LIVE / TIMESHIFT BUTTON IN THE MAIN CONTROLS ROW
+                        if (isRadioLive) {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .background(CyberCharcoal, CircleShape)
+                                    .clickable {
+                                        Toast.makeText(context, "Ya estás sintonizando la Emisión en Vivo LIVE 📻", Toast.LENGTH_SHORT).show()
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                LiveLogoIcon(
+                                    modifier = Modifier.size(56.dp).padding(6.dp),
+                                    innerCircleSize = 44.dp,
+                                    strokeWidth = 4.dp,
+                                    fontSize = 9.sp,
+                                    playButtonSize = 14.dp,
+                                    playIconSize = 8.dp
+                                )
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .background(CyberCharcoal, CircleShape)
+                                    .clickable {
+                                        AudioPlayerManager.goLiveRadio()
+                                        Toast.makeText(context, "Volviendo al DIRECTO LIVE 📻", Toast.LENGTH_SHORT).show()
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                TimeshiftLogoIcon(
+                                    modifier = Modifier.size(56.dp).padding(6.dp),
+                                    size = 40.dp,
+                                    strokeWidth = 4.dp,
+                                    innerBarWidth = 6.dp,
+                                    innerBarHeight = 20.dp,
+                                    showText = false
+                                )
                             }
                         }
                     }
@@ -5130,19 +13995,6 @@ fun PlayerTabSchema(viewModel: FtpViewModel, onNavigateToRecent: () -> Unit) {
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (!isRadioLive) {
-                            Button(
-                                onClick = { AudioPlayerManager.goLiveRadio() },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.LiveTv, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("DIRECTO", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1)
-                            }
-                        }
-
                         Button(
                             onClick = {
                                 val success = AudioPlayerManager.saveRadioRecording(context)
@@ -5154,11 +14006,11 @@ fun PlayerTabSchema(viewModel: FtpViewModel, onNavigateToRecent: () -> Unit) {
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = CyberTeal),
                             shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.weight(1.3f)
+                            modifier = Modifier.weight(1f)
                         ) {
                             Icon(Icons.Default.Save, contentDescription = null, tint = CyberDark, modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("GUARDAR PODCAST", color = CyberDark, fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1)
+                            Text("GUARDAR", color = CyberDark, fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1)
                         }
 
                         Button(
@@ -5173,152 +14025,170 @@ fun PlayerTabSchema(viewModel: FtpViewModel, onNavigateToRecent: () -> Unit) {
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Button(
-                        onClick = {
-                            val currentPosMs = radioPlayPos.toLong() * 1000L
-                            val timestampTxt = formatSec(radioPlayPos)
-                            val added = addPodmark(context, track.fileName, track.filePath, currentPosMs, timestampTxt)
-                            if (added) {
-                                refreshPodmarksTrigger++
-                                Toast.makeText(context, "📍 Podmark guardado a las $timestampTxt", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Bookmark, contentDescription = "Crear Podmark", tint = Color.White, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("CREAR PODMARK (MEJOR MOMENTO) 📍", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Grabado en buffer: ${String.format("%.2f", totalRecBytes.toFloat() / 1024f / 1024f)} MB",
-                            color = Color.Gray,
-                            fontSize = 11.sp
-                        )
-                        if (!isRadioLive) {
-                            Text(
-                                text = "Timeshift Activo ⏸️",
-                                color = CyberTeal,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-
-                    // MODO SEGURO (SAFE SECTOR LOCK) CARD CONTROL
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isRecordingProtected) CyberTeal.copy(alpha = 0.15f) else CyberSurface
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .pointerInput(isRecordingProtected) {
-                                if (isRecordingProtected) {
-                                    awaitPointerEventScope {
-                                        while (true) {
-                                            val down = awaitFirstDown()
-                                            var releasedOrCancelled = false
-                                            val startTime = System.currentTimeMillis()
-                                            val job = scope.launch {
-                                                kotlinx.coroutines.delay(3000)
-                                                if (!releasedOrCancelled) {
-                                                    AudioPlayerManager.setRecordingProtectedMode(false)
-                                                    try {
-                                                        val vibrator = context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
-                                                        vibrator?.vibrate(android.os.VibrationEffect.createOneShot(150, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
-                                                    } catch (_: Exception) {}
-                                                }
-                                            }
-                                            val up = waitForUpOrCancellation()
-                                            releasedOrCancelled = true
-                                            job.cancel()
-                                            if (up != null) {
-                                                val elapsed = System.currentTimeMillis() - startTime
-                                                if (elapsed < 3000) {
-                                                    scope.launch(Dispatchers.Main) {
-                                                        Toast.makeText(context, "⚠️ Mantén pulsado durante 3 segundos para desactivar el Modo Seguro.", Toast.LENGTH_SHORT).show()
-                                                    }
-                                                } else {
-                                                    scope.launch(Dispatchers.Main) {
-                                                        Toast.makeText(context, "🔓 Modo Seguro DESACTIVADO", Toast.LENGTH_SHORT).show()
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    detectTapGestures(
-                                        onTap = {
-                                            AudioPlayerManager.setRecordingProtectedMode(true)
-                                            Toast.makeText(context, "🔒 Modo Seguro ACTIVO", Toast.LENGTH_SHORT).show()
-                                        }
-                                    )
-                                }
-                            },
-                        border = if (isRecordingProtected) {
-                            androidx.compose.foundation.BorderStroke(2.dp, CyberTeal)
-                        } else {
-                            androidx.compose.foundation.BorderStroke(1.dp, CyberCharcoal)
-                        }
-                    ) {
-                        Row(
+                    // Sleek Telemetry Panel (Buffer Speed, Signal stability & Heatmap segments) - Borderless & Utra-thin
+                    if (showRadioTelemetry) {
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .padding(vertical = 2.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                Icon(
-                                    imageVector = if (isRecordingProtected) Icons.Default.Lock else Icons.Default.LockOpen,
-                                    contentDescription = null,
-                                    tint = if (isRecordingProtected) CyberTeal else Color.Gray,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Consolidating signal and stability with full complete names
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(5.dp)
+                                            .background(
+                                                if (radioDownloadSpeedKbps > 0f) CyberTeal else Color.Red,
+                                                CircleShape
+                                            )
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = if (isRecordingProtected) "Modo Seguro: ACTIVO 🔒" else "Modo Seguro: DESACTIVADO 🔓",
-                                        color = if (isRecordingProtected) CyberTeal else Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
+                                        "Velocidad de Señal: ",
+                                        color = Color.Gray,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Medium
                                     )
                                     Text(
-                                        text = if (isRecordingProtected) "Bloqueo de cambios de emisora activo para proteger la grabación." else "Previene interrupciones accidentales si tocas otra canción o stream.",
+                                        text = "${String.format("%.1f", radioDownloadSpeedKbps)} KB/s",
+                                        color = CyberTeal,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "Estabilidad de Conexión: ",
                                         color = Color.Gray,
-                                        fontSize = 11.sp
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = "${(radioSignalStability * 100).toInt()}%",
+                                        color = if (radioSignalStability > 0.7f) CyberTeal else if (radioSignalStability > 0.4f) Color.Yellow else Color.Red,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
-                            Switch(
-                                checked = isRecordingProtected,
-                                onCheckedChange = { check ->
-                                    if (check) {
-                                        AudioPlayerManager.setRecordingProtectedMode(true)
-                                        Toast.makeText(context, "🔒 Modo Seguro activado", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "⚠️ Mantén pulsado la tarjeta de Modo Seguro durante 3 segundos para desactivar.", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = CyberDark,
-                                    checkedTrackColor = CyberTeal,
-                                    uncheckedThumbColor = Color.Gray,
-                                    uncheckedTrackColor = CyberCharcoal
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "Historial de Búfer (15s):",
+                                    color = Color.Gray,
+                                    fontSize = 8.5.sp
                                 )
-                            )
+                                
+                                if (radioElapsed > 0) {
+                                    Text(
+                                        text = "Grabado en búfer: ${String.format("%.2f", totalRecBytes.toFloat() / 1024f / 1024f)} MB",
+                                        color = CyberTeal,
+                                        fontSize = 8.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                radioHealthHistory.forEach { stabilityVal ->
+                                    val color = when {
+                                        stabilityVal > 0.8f -> CyberTeal
+                                        stabilityVal > 0.5f -> Color.Yellow.copy(alpha = 0.8f)
+                                        stabilityVal > 0.2f -> Color.Red.copy(alpha = 0.6f)
+                                        else -> CyberCharcoal
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                            .background(color, RoundedCornerShape(1.dp))
+                                    )
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (!isRadioLive) {
+                                    Text(
+                                        text = "Timeshift Activo ⏸️",
+                                        color = CyberTeal,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                } else {
+                                    Spacer(modifier = Modifier.width(1.dp))
+                                }
+                                
+                                // Visual Status Indicator for Connection & Reconnecting Attempts
+                                if (isRadioReconnecting) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        CircularProgressIndicator(
+                                            color = WarningHotPink,
+                                            strokeWidth = 1.dp,
+                                            modifier = Modifier.size(6.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text(
+                                            "Reconectando...",
+                                            color = WarningHotPink,
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                } else if (radioDownloadSpeedKbps <= 0f) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(5.dp)
+                                                .background(Color.Yellow, CircleShape)
+                                        )
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text(
+                                            "Sin red / Reintentando...",
+                                            color = Color.Yellow,
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                } else {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(5.dp)
+                                                .background(CyberTeal, CircleShape)
+                                        )
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text(
+                                            "Conectado",
+                                            color = CyberTeal,
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
+
                 }
             } else {
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -5330,15 +14200,31 @@ fun PlayerTabSchema(viewModel: FtpViewModel, onNavigateToRecent: () -> Unit) {
                         durationMs = duration,
                         onSeekTo = { posMs ->
                             AudioPlayerManager.seekTo(posMs)
-                        }
+                        },
+                        onPodmarkTripleClick = { pm ->
+                            val fullList = getPodmarks(context)
+                            val originalIdx = fullList.indexOfFirst { it.createdAt == pm.createdAt && it.positionMs == pm.positionMs }
+                            if (originalIdx != -1) {
+                                deletePodmark(context, originalIdx)
+                                refreshPodmarksTrigger++
+                                Toast.makeText(context, "📍 Marca eliminada", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        marcaInicio = if (isTrimModeActive) marcaInicio else null,
+                        marcaFin = if (isTrimModeActive) marcaFin else null
                     )
                     Slider(
                         value = currentPosition.toFloat(),
-                        onValueChange = { AudioPlayerManager.seekTo(it.toLong()) },
+                        onValueChange = { 
+                            AudioPlayerManager.seekTo(it.toLong()) 
+                        },
                         valueRange = 0f..if (duration > 0) duration.toFloat() else 1000f,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
                         colors = SliderDefaults.colors(
-                            thumbColor = CyberTeal,
-                            activeTrackColor = CyberTeal,
+                            thumbColor = if (showLastTrackIndicator && isLastTrackInQueue) Color.Red else CyberTeal,
+                            activeTrackColor = if (showLastTrackIndicator && isLastTrackInQueue) Color.Red else CyberTeal,
                             inactiveTrackColor = CyberCharcoal
                         )
                     )
@@ -5347,139 +14233,865 @@ fun PlayerTabSchema(viewModel: FtpViewModel, onNavigateToRecent: () -> Unit) {
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(formattedPosition, color = Color.Gray, fontSize = 12.sp)
-                        Text(formattedDuration, color = Color.Gray, fontSize = 12.sp)
+                        Text(formattedPosition, color = if (showLastTrackIndicator && isLastTrackInQueue) Color.Red else Color.Gray, fontSize = 12.sp)
+                        if (showLastTrackIndicator && isLastTrackInQueue) {
+                            Text("Última Pista", color = Color.Red, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Text(formattedDuration, color = if (showLastTrackIndicator && isLastTrackInQueue) Color.Red else Color.Gray, fontSize = 12.sp)
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // Standard Media control triggers with -10s / +30s buttons
+                // Standard Media control triggers
+                var tapUnlockCountNonRadio by remember { mutableStateOf(0) }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Shuffle logic
-                    val isShuffleEnabled by AudioPlayerManager.isShuffleEnabled.collectAsStateWithLifecycle()
-                    IconButton(onClick = { AudioPlayerManager.toggleShuffle() }) {
+                    // LOCK/UNLOCK PADLOCK BUTTON
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .background(if (isRecordingProtected) WarningHotPink.copy(alpha = 0.2f) else CyberCharcoal, CircleShape)
+                            .border(1.dp, if (isRecordingProtected) WarningHotPink else Color.Gray.copy(alpha = 0.5f), CircleShape)
+                            .clickable {
+                                hapticFeedback.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                if (isRecordingProtected) {
+                                    tapUnlockCountNonRadio++
+                                    if (tapUnlockCountNonRadio >= 3) {
+                                        AudioPlayerManager.setRecordingProtectedMode(false)
+                                        Toast.makeText(context, "Modo Seguro DESACTIVADO", Toast.LENGTH_SHORT).show()
+                                        tapUnlockCountNonRadio = 0
+                                    }
+                                } else {
+                                    AudioPlayerManager.setRecordingProtectedMode(true)
+                                    Toast.makeText(context, "Modo Seguro ACTIVADO", Toast.LENGTH_SHORT).show()
+                                    tapUnlockCountNonRadio = 0
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.Shuffle,
-                            contentDescription = "Aleatorio",
-                            tint = if (isShuffleEnabled) CyberTeal else Color.Gray,
+                            imageVector = if (isRecordingProtected) Icons.Default.Lock else Icons.Default.LockOpen,
+                            contentDescription = "Bloqueo Seguro (Modo Seguro)",
+                            tint = if (isRecordingProtected) WarningHotPink else CyberTeal,
                             modifier = Modifier.size(24.dp)
                         )
                     }
 
-                    // Rewind 30 Seconds
-                    IconButton(
-                        onClick = { AudioPlayerManager.skipSeconds(-30) }
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.RotateLeft, contentDescription = "Retroceder 30 Segundos", tint = Color.LightGray, modifier = Modifier.size(22.dp))
-                            Text("-30s", fontSize = 8.sp, color = CyberTeal)
-                        }
-                    }
-
-                    IconButton(
-                        onClick = { AudioPlayerManager.playPrevious(context) },
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(Icons.Default.SkipPrevious, contentDescription = "Anterior", tint = Color.White, modifier = Modifier.size(28.dp))
-                    }
-
+                    // PREVIOUS BUTTON
                     Box(
                         modifier = Modifier
-                            .size(64.dp)
+                            .size(56.dp)
+                            .background(CyberCharcoal, CircleShape)
+                            .border(1.dp, Color.Gray.copy(alpha = 0.3f), CircleShape)
+                            .clickable { 
+                                AudioPlayerManager.playPrevious(context) 
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SkipPrevious,
+                            contentDescription = "Anterior",
+                            tint = Color.White,
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+
+                    // PLAY / PAUSE BUTTON
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
                             .background(CyberTeal, CircleShape)
-                            .clickable { AudioPlayerManager.togglePlayPause() },
+                            .clickable { 
+                                AudioPlayerManager.togglePlayPause(context) 
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = "Play/Pause",
                             tint = CyberDark,
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(40.dp)
                         )
                     }
 
-                    IconButton(
-                        onClick = { AudioPlayerManager.playNext(context) },
-                        modifier = Modifier.size(48.dp)
+                    // NEXT BUTTON
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .background(CyberCharcoal, CircleShape)
+                            .border(1.dp, Color.Gray.copy(alpha = 0.3f), CircleShape)
+                            .clickable { 
+                                AudioPlayerManager.playNext(context) 
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.SkipNext, contentDescription = "Siguiente", tint = Color.White, modifier = Modifier.size(28.dp))
+                        Icon(
+                            imageVector = Icons.Default.SkipNext,
+                            contentDescription = "Siguiente",
+                            tint = Color.White,
+                            modifier = Modifier.size(30.dp)
+                        )
                     }
+                }
 
-                    // Fast Forward 30 Seconds
-                    IconButton(
-                        onClick = { AudioPlayerManager.skipSeconds(30) }
+                var showQueueDialog by remember { mutableStateOf(false) }
+
+                if (showQueueDialog) {
+                    val queueList by AudioPlayerManager.playlistQueue.collectAsStateWithLifecycle()
+                    val playingTrack = currentTrack
+                    
+                    Dialog(onDismissRequest = { showQueueDialog = false }) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        PlaylistIcon(
+                                            modifier = Modifier.size(20.dp),
+                                            tint = CyberTeal
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        val currentTrackIndex = if (playingTrack != null && queueList.isNotEmpty()) {
+                                            queueList.indexOfFirst { it.filePath == playingTrack.filePath }
+                                        } else {
+                                            -1
+                                        }
+                                        val labelText = if (playingTrack != null && currentTrackIndex != -1) {
+                                            "Pista ${currentTrackIndex + 1} de ${queueList.size} pistas 🎶"
+                                        } else {
+                                            "Cola de Reproducción 🎶"
+                                        }
+                                        Text(
+                                            text = labelText,
+                                            color = Color.White,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
+                                HorizontalDivider(color = CyberGrey.copy(alpha = 0.5f))
+
+                                if (queueList.isEmpty()) {
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth().height(150.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("La lista está vacía", color = Color.Gray, fontSize = 12.sp)
+                                    }
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 280.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        items(queueList) { item ->
+                                            val idx = queueList.indexOf(item)
+                                            val isCurrent = playingTrack != null && playingTrack.filePath == item.filePath
+                                            val borderStroke = if (isCurrent) BorderStroke(1.dp, CyberTeal.copy(alpha = 0.5f)) else null
+                                            
+                                            Card(
+                                                colors = CardDefaults.cardColors(containerColor = if (isCurrent) CyberSurface else CyberGrey.copy(alpha = 0.15f)),
+                                                border = borderStroke,
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        if (idx != -1) {
+                                                            AudioPlayerManager.playTrackAtIndex(context, idx)
+                                                            showQueueDialog = false
+                                                        }
+                                                    }
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(12.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(24.dp)
+                                                            .background(if (isCurrent) CyberTeal else CyberCharcoal, CircleShape),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        if (isCurrent && isPlaying) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Pause,
+                                                                contentDescription = "Playing",
+                                                                tint = CyberDark,
+                                                                modifier = Modifier.size(12.dp)
+                                                            )
+                                                        } else if (isCurrent) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.PlayArrow,
+                                                                contentDescription = "Selected",
+                                                                tint = CyberDark,
+                                                                modifier = Modifier.size(12.dp)
+                                                            )
+                                                        } else {
+                                                            Text(
+                                                                text = "${idx + 1}",
+                                                                color = Color.White,
+                                                                fontSize = 10.sp,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                        }
+                                                    }
+                                                    
+                                                    Spacer(modifier = Modifier.width(12.dp))
+                                                    
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(
+                                                            text = item.fileName,
+                                                            color = if (isCurrent) CyberTeal else Color.White,
+                                                            fontSize = 12.sp,
+                                                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        Text(
+                                                            text = item.filePath.substringAfterLast("/"),
+                                                            color = Color.Gray,
+                                                            fontSize = 10.sp,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                HorizontalDivider(color = CyberGrey.copy(alpha = 0.5f))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    TextButton(onClick = { showQueueDialog = false }) {
+                                        Text("CERRAR", color = CyberTeal, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Button 1: Ver Lista (with Text as requested)
+                    Button(
+                        onClick = { showQueueDialog = true },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = CyberCharcoal,
+                            contentColor = CyberTeal
+                        ),
+                        shape = RoundedCornerShape(20.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                        modifier = Modifier.height(38.dp)
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.RotateRight, contentDescription = "Adelantar 30 Segundos", tint = Color.LightGray, modifier = Modifier.size(22.dp))
-                            Text("+30s", fontSize = 8.sp, color = CyberTeal)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MusicNote,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text("Ver Lista", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
 
-                    // Repeat Mode Button
-                    val repeatMode by AudioPlayerManager.repeatMode.collectAsStateWithLifecycle()
-                    val repeatIcon = when (repeatMode) {
-                        PlaybackRepeatMode.ONE -> Icons.Default.RepeatOne
-                        else -> Icons.Default.Repeat
-                    }
-                    val repeatTint = when (repeatMode) {
-                        PlaybackRepeatMode.NONE -> Color.Gray
-                        else -> CyberTeal
-                    }
-                    IconButton(onClick = { AudioPlayerManager.toggleRepeatMode() }) {
-                        Icon(
-                            imageVector = repeatIcon,
-                            contentDescription = "Repetir",
-                            tint = repeatTint,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
+                    Spacer(modifier = Modifier.width(8.dp))
 
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Button(
+                    // Button 2: Sincronizador de Posición (AccessTime Icon)
+                    IconButton(
                         onClick = {
-                            val timestampTxt = formatMs(currentPosition)
-                            val added = addPodmark(context, track.fileName, track.filePath, currentPosition, timestampTxt)
-                            if (added) {
-                                refreshPodmarksTrigger++
-                                Toast.makeText(context, "📍 Podmark guardado a las $timestampTxt", Toast.LENGTH_SHORT).show()
+                            val nextValue = !rememberTrackPositionEnabled
+                            rememberTrackPositionEnabled = nextValue
+                            mainPrefs.edit().putBoolean("remember_track_position_enabled", nextValue).apply()
+                            if (nextValue) {
+                                Toast.makeText(context, "Sincronizador ACTIVO: Se recordará la posición de las pistas ⏱️", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Sincronizador DESACTIVADO: Las pistas iniciarán desde cero (00:00) 🚫", Toast.LENGTH_SHORT).show()
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1.3f)
+                        modifier = Modifier
+                            .size(38.dp)
+                            .background(CyberCharcoal, CircleShape)
                     ) {
-                        Icon(Icons.Default.Bookmark, contentDescription = "Crear Podmark", tint = Color.White, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("CREAR PODMARK 📍", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
+                        Icon(
+                            imageVector = Icons.Default.AccessTime,
+                            contentDescription = "Sincronizador de Posición",
+                            tint = if (rememberTrackPositionEnabled) CyberTeal else Color.Gray.copy(alpha = 0.5f),
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
 
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Button 3: Carga Ultra Rápida (FlashOn Icon)
+                    IconButton(
+                        onClick = {
+                            val nextValue = !ultraFastLoadingEnabled
+                            ultraFastLoadingEnabled = nextValue
+                            mainPrefs.edit().putBoolean("ultra_fast_loading_enabled", nextValue).apply()
+                            if (nextValue) {
+                                Toast.makeText(context, "⚡ Carga Ultra Rápida ACTIVA: Se pre-cargarán 20 segundos para reproducción instantánea y el resto en segundo plano.", Toast.LENGTH_LONG).show()
+                            } else {
+                                Toast.makeText(context, "🐢 Carga Normal: Las pistas se descargarán por completo antes de reproducirse.", Toast.LENGTH_LONG).show()
+                            }
+                        },
+                        modifier = Modifier
+                            .size(38.dp)
+                            .background(CyberCharcoal, CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FlashOn,
+                            contentDescription = "Carga Ultra Rápida",
+                            tint = if (ultraFastLoadingEnabled) Color(0xFFFFB300) else Color.Gray.copy(alpha = 0.5f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Button 4: Recientes (with Text as requested)
                     Button(
                         onClick = onNavigateToRecent,
-                        colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = CyberCharcoal,
+                            contentColor = CyberTeal
+                        ),
+                        shape = RoundedCornerShape(20.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                        modifier = Modifier.height(38.dp)
                     ) {
-                        Icon(Icons.Default.History, contentDescription = "Recientes", tint = CyberTeal, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("RECIENTES ⌛", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.History,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text("Recientes", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                // HIGHLY CUSTOMIZABLE PREFETCH PROGRESS CARD WITH ON/OFF SWITCH (USER REQUEST)
+                val prefetch_enabled = remember { mutableStateOf(context.getSharedPreferences("ftp_hub_settings", android.content.Context.MODE_PRIVATE).getBoolean("ftp_prefetch_enabled", true)) }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 0.dp, bottom = 1.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 1.dp, bottom = 2.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(
+                                    imageVector = Icons.Default.Bolt,
+                                    contentDescription = "Precarga",
+                                    tint = if (prefetch_enabled.value) CyberTeal else Color.Gray,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "Precarga Inteligente FTP/SFTP",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Descarga los siguientes 30s de la pista remota",
+                                        color = Color.Gray,
+                                        fontSize = 8.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            Switch(
+                                checked = prefetch_enabled.value,
+                                onCheckedChange = { checked ->
+                                    prefetch_enabled.value = checked
+                                    context.getSharedPreferences("ftp_hub_settings", android.content.Context.MODE_PRIVATE)
+                                        .edit()
+                                        .putBoolean("ftp_prefetch_enabled", checked)
+                                        .apply()
+                                    if (checked) {
+                                        Toast.makeText(context, "🚀 Precarga de pista siguiente ACTIVADA", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "⏸️ Precarga de pista siguiente DESACTIVADA", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = CyberDark,
+                                    checkedTrackColor = CyberTeal,
+                                    uncheckedThumbColor = Color.Gray,
+                                    uncheckedTrackColor = CyberCharcoal
+                                )
+                            )
+                        }
+
+                        val showProgressDetails = prefetch_enabled.value || isDownloadingActiveTrack
+                        if (showProgressDetails) {
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val isActivelyBufferingTrack = isDownloadingActiveTrack && currentTrack != null && prefetchTrackName == currentTrack?.fileName
+                                val displayState = if (isActivelyBufferingTrack) {
+                                    "Cargando pista..."
+                                } else if (prefetchState == "Descargando") {
+                                    "Descargando..."
+                                } else {
+                                    "Estado: $prefetchState"
+                                }
+
+                                Text(
+                                    text = displayState,
+                                    color = when (prefetchState) {
+                                        "Completado" -> Color.Green
+                                        "Descargando" -> CyberTeal
+                                        "Error" -> WarningHotPink
+                                        else -> if (isActivelyBufferingTrack) CyberTeal else Color.Gray
+                                    },
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+
+                                if (prefetchState == "Descargando" || isDownloadingActiveTrack) {
+                                    Text(
+                                        text = "${(prefetchProgress * 100).toInt()}%",
+                                        color = CyberTeal,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            if ((prefetchState != "Inactivo" && prefetchState != "Desactivado" || isDownloadingActiveTrack) && prefetchTrackName.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                val isActivelyBufferingTrack = isDownloadingActiveTrack && currentTrack != null && prefetchTrackName == currentTrack?.fileName
+                                Text(
+                                    text = if (isActivelyBufferingTrack) "Cargando: $prefetchTrackName" else "Siguiente: $prefetchTrackName",
+                                    color = CyberLight,
+                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            if (prefetchState == "Descargando" || isDownloadingActiveTrack) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                LinearProgressIndicator(
+                                    progress = prefetchProgress,
+                                    color = CyberTeal,
+                                    trackColor = CyberCharcoal,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(4.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                )
+                            }
+
+                            if (isDownloadingActiveTrack) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Button 1: Reconectar FTP
+                                    Button(
+                                        onClick = {
+                                            scope.launch(Dispatchers.IO) {
+                                                try {
+                                                    com.example.data.repository.FtpClientManager.disconnect()
+                                                    val reconnected = com.example.data.repository.FtpClientManager.autoReconnect(context)
+                                                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                                                        if (reconnected) {
+                                                            Toast.makeText(context, "🔄 ¡FTP re-sintonizado con éxito! Reintentando...", Toast.LENGTH_SHORT).show()
+                                                        } else {
+                                                            Toast.makeText(context, "⚠️ Intentando descarga de pista directamente...", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                        currentTrack?.let { track ->
+                                                            AudioPlayerManager.playTrack(context, track)
+                                                        }
+                                                    }
+                                                } catch (e: Exception) {
+                                                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                                                        Toast.makeText(context, "❌ Error al reconectar: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = CyberTeal,
+                                            contentColor = CyberDark
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.weight(1.1f),
+                                        contentPadding = PaddingValues(vertical = 6.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
+                                        ) {
+                                            Icon(Icons.Default.Refresh, contentDescription = "Reintentar", modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Reconectar FTP", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+
+                                    // Button 2: Cancelar
+                                    OutlinedButton(
+                                        onClick = {
+                                            AudioPlayerManager.stopPlayback()
+                                        },
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            contentColor = WarningHotPink
+                                        ),
+                                        border = BorderStroke(1.dp, WarningHotPink.copy(alpha = 0.5f)),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.weight(0.9f),
+                                        contentPadding = PaddingValues(vertical = 6.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
+                                        ) {
+                                            Icon(Icons.Default.Close, contentDescription = "Cancelar", modifier = Modifier.size(12.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Cancelar", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
             }
         }
+    }
+
+    if (showSaveClipDialog) {
+        val duration = AudioPlayerManager.duration.value
+        AlertDialog(
+            modifier = Modifier.fillMaxWidth(0.95f),
+            onDismissRequest = { 
+                showSaveClipDialog = false 
+                isTrimModeActive = false
+                marcaInicio = null
+                marcaFin = null
+            },
+            title = { Text("¿Quieres guardar este clip?", color = CyberTeal) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        "Escribe un nombre para identificar tu recorte sin recodificar. Sincronizado en milisegundos sin pérdida de calidad:",
+                        color = Color.LightGray,
+                        fontSize = 11.sp
+                    )
+                    OutlinedTextField(
+                        value = clipSaveName,
+                        onValueChange = { clipSaveName = it },
+                        label = { Text("Nombre del recorte", fontSize = 11.sp) },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = CyberTeal,
+                            focusedLabelColor = CyberTeal,
+                            cursorColor = CyberTeal
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "AJUSTE FINO DE TIEMPOS (PASO 0.5s a 1s):",
+                        color = CyberTeal,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+
+                    // Inicio adjustment Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "🔴 Inicio: ${if (marcaInicio != null) formatMs(marcaInicio!!) else "No fijado"}",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (marcaInicio != null) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Button(
+                                    onClick = {
+                                        marcaInicio = maxOf(0L, (marcaInicio ?: 0L) - 1000L)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(24.dp).widthIn(min = 34.dp)
+                                ) {
+                                    Text("-1s", color = CyberTeal, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Button(
+                                    onClick = {
+                                        marcaInicio = maxOf(0L, (marcaInicio ?: 0L) - 500L)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(24.dp).widthIn(min = 34.dp)
+                                ) {
+                                    Text("-0.5s", color = CyberTeal, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Button(
+                                    onClick = {
+                                        val isRadio = currentTrack?.playlistId == -2
+                                        val limit = marcaFin ?: if (isRadio) (AudioPlayerManager.radioElapsedTimeSec.value * 1000L) else duration.toLong()
+                                        marcaInicio = minOf(limit, (marcaInicio ?: 0L) + 500L)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(24.dp).widthIn(min = 34.dp)
+                                ) {
+                                    Text("+0.5s", color = CyberTeal, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Button(
+                                    onClick = {
+                                        val isRadio = currentTrack?.playlistId == -2
+                                        val limit = marcaFin ?: if (isRadio) (AudioPlayerManager.radioElapsedTimeSec.value * 1000L) else duration.toLong()
+                                        marcaInicio = minOf(limit, (marcaInicio ?: 0L) + 1000L)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(24.dp).widthIn(min = 34.dp)
+                                ) {
+                                    Text("+1s", color = CyberTeal, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    // Fin adjustment Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "🔵 Fin: ${if (marcaFin != null) formatMs(marcaFin!!) else "No fijado"}",
+                            color = CyberTeal,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (marcaFin != null) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Button(
+                                    onClick = {
+                                        val limit = marcaInicio ?: 0L
+                                        marcaFin = maxOf(limit, (marcaFin ?: 0L) - 1000L)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(24.dp).widthIn(min = 34.dp)
+                                ) {
+                                    Text("-1s", color = CyberTeal, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Button(
+                                    onClick = {
+                                        val limit = marcaInicio ?: 0L
+                                        marcaFin = maxOf(limit, (marcaFin ?: 0L) - 500L)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(24.dp).widthIn(min = 34.dp)
+                                ) {
+                                    Text("-0.5s", color = CyberTeal, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Button(
+                                    onClick = {
+                                        val isRadio = currentTrack?.playlistId == -2
+                                        val limit = if (isRadio) (AudioPlayerManager.radioElapsedTimeSec.value * 1000L) else duration.toLong()
+                                        marcaFin = minOf(limit, (marcaFin ?: 0L) + 500L)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(24.dp).widthIn(min = 34.dp)
+                                ) {
+                                    Text("+0.5s", color = CyberTeal, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Button(
+                                    onClick = {
+                                        val isRadio = currentTrack?.playlistId == -2
+                                        val limit = if (isRadio) (AudioPlayerManager.radioElapsedTimeSec.value * 1000L) else duration.toLong()
+                                        marcaFin = minOf(limit, (marcaFin ?: 0L) + 1000L)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(24.dp).widthIn(min = 34.dp)
+                                ) {
+                                    Text("+1s", color = CyberTeal, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val track = currentTrack
+                        val startMs = marcaInicio
+                        val endMs = marcaFin
+                        if (track != null && startMs != null && endMs != null) {
+                            if (clipSaveName.isBlank()) {
+                                Toast.makeText(context, "Por favor, escribe un nombre para el recorte", Toast.LENGTH_SHORT).show()
+                                return@TextButton
+                            }
+                            
+                            val sourceExt = if (track.filePath.endsWith(".mp3")) "mp3" else "mp4"
+                            val sourceFile = when {
+                                track.playlistId == -2 -> {
+                                    val tempRadioFile = File(context.cacheDir, "timeshift_temp.mp3")
+                                    if (tempRadioFile.exists()) tempRadioFile else null
+                                }
+                                track.filePath.startsWith("ftp://") -> {
+                                    val cached = AudioPlayerManager.getCachedFileForTrack(context, track)
+                                    if (cached != null && cached.exists() && cached.length() > 0) cached else null
+                                }
+                                track.filePath.startsWith("/") -> {
+                                    val f = File(track.filePath)
+                                    if (f.exists() && f.canRead()) f else null
+                                }
+                                else -> null
+                            }
+                            
+                            if (sourceFile == null) {
+                                Toast.makeText(context, "La fuente de audio no está disponible localmente", Toast.LENGTH_LONG).show()
+                                return@TextButton
+                            }
+                            
+                            val systemPrefs = context.getSharedPreferences("ftp_hub_settings", android.content.Context.MODE_PRIVATE)
+                            val customDirPath = systemPrefs.getString("recording_destination_dir", null)
+                            val targetDir = if (!customDirPath.isNullOrBlank()) File(customDirPath) else File(context.filesDir, "grabaciones")
+                            if (!targetDir.exists()) {
+                                targetDir.mkdirs()
+                            }
+                            val sanitizedName = clipSaveName.replace("[\\\\/:*?\"<>|]".toRegex(), "_")
+                            val finalFileName = "Recorte_${sanitizedName}_${System.currentTimeMillis()}.$sourceExt"
+                            val targetFile = File(targetDir, finalFileName)
+                            
+                            scope.launch {
+                                val success = AudioTrimmer.trimAudio(
+                                    inputPath = sourceFile.absolutePath,
+                                    outputPath = targetFile.absolutePath,
+                                    startMs = startMs,
+                                    endMs = endMs
+                                )
+                                if (success) {
+                                    Toast.makeText(context, "✅ ¡Recorte guardado con éxito!", Toast.LENGTH_LONG).show()
+                                    showSaveClipDialog = false
+                                    isTrimModeActive = false
+                                    marcaInicio = null
+                                    marcaFin = null
+                                    clipSaveName = ""
+                                } else {
+                                    Toast.makeText(context, "❌ Error al recortar el audio losslessly", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        } else {
+                            Toast.makeText(context, "No hay pista activa o marcas válidas", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                ) {
+                    Text("Guardar Clip", color = CyberTeal, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            showSaveClipDialog = false
+                            val ms = marcaInicio
+                            if (ms != null) {
+                                val isRadio = currentTrack?.playlistId == -2
+                                if (isRadio) {
+                                    AudioPlayerManager.seekRadioTimeShift((ms / 1000).toInt())
+                                } else {
+                                    AudioPlayerManager.seekTo(ms)
+                                }
+                                AudioPlayerManager.resumePlayback()
+                            }
+                        }
+                    ) {
+                        Text("Volver a escuchar", color = Color.Gray)
+                    }
+                    TextButton(
+                        onClick = {
+                            showSaveClipDialog = false
+                            isTrimModeActive = false
+                            marcaInicio = null
+                            marcaFin = null
+                        }
+                    ) {
+                        Text("Cancelar", color = Color.Red)
+                    }
+                }
+            },
+            containerColor = CyberSurface,
+            textContentColor = Color.White,
+            titleContentColor = CyberTeal
+        )
     }
 }
 
@@ -5554,6 +15166,9 @@ fun RadiosOnlineDetailsScreen(viewModel: FtpViewModel) {
     val onlineRadios by viewModel.onlineRadios.collectAsStateWithLifecycle()
     val currentTrack by AudioPlayerManager.currentTrack.collectAsStateWithLifecycle()
     val isPlaying by AudioPlayerManager.isPlaying.collectAsStateWithLifecycle()
+
+    val radioPrefs = remember { context.getSharedPreferences("radio_prefs", android.content.Context.MODE_PRIVATE) }
+    var isGridView by remember { mutableStateOf(radioPrefs.getBoolean("grid_view_enabled", false)) }
 
     var nameInput by remember { mutableStateOf("") }
     var urlInput by remember { mutableStateOf("") }
@@ -5867,8 +15482,8 @@ fun RadiosOnlineDetailsScreen(viewModel: FtpViewModel) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         item {
             Row(
@@ -5880,14 +15495,36 @@ fun RadiosOnlineDetailsScreen(viewModel: FtpViewModel) {
                     Text("Mis Radios Online", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = CyberTeal)
                     Text("Reproduce, guarda y sintoniza emisoras de internet.", fontSize = 11.sp, color = Color.Gray)
                 }
-                IconButton(
-                    onClick = { showAddRadioDialog = true },
-                    modifier = Modifier
-                        .size(40.dp)
-                        .background(CyberCharcoal, RoundedCornerShape(10.dp))
-                        .border(androidx.compose.foundation.BorderStroke(1.dp, CyberTeal.copy(alpha = 0.5f)), RoundedCornerShape(10.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "Añadir Emisora", tint = CyberTeal)
+                    IconButton(
+                        onClick = {
+                            isGridView = !isGridView
+                            radioPrefs.edit().putBoolean("grid_view_enabled", isGridView).apply()
+                        },
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(CyberCharcoal, RoundedCornerShape(10.dp))
+                            .border(androidx.compose.foundation.BorderStroke(1.dp, if (isGridView) CyberTeal else Color.Gray.copy(alpha = 0.5f)), RoundedCornerShape(10.dp))
+                    ) {
+                        Icon(
+                            imageVector = if (isGridView) Icons.Default.Apps else Icons.Default.List,
+                            contentDescription = "Cambiar Vista",
+                            tint = if (isGridView) CyberTeal else Color.White
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { showAddRadioDialog = true },
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(CyberCharcoal, RoundedCornerShape(10.dp))
+                            .border(androidx.compose.foundation.BorderStroke(1.dp, CyberTeal.copy(alpha = 0.5f)), RoundedCornerShape(10.dp))
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Añadir Emisora", tint = CyberTeal)
+                    }
                 }
             }
         }
@@ -5905,148 +15542,297 @@ fun RadiosOnlineDetailsScreen(viewModel: FtpViewModel) {
                 }
             }
         } else {
-            items(onlineRadios) { radio ->
-                val isCurrentRadio = currentTrack?.filePath == radio.url
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isCurrentRadio) CyberCharcoal else CyberSurface
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            val playlistItem = PlaylistItem(
-                                id = 0,
-                                playlistId = -2, // web streams indicator
-                                fileName = radio.name,
-                                filePath = radio.url,
-                                fileSize = 0L
-                            )
-                            AudioPlayerManager.playTrack(context, playlistItem)
-                        }
-                ) {
+            if (isGridView) {
+                val chunks = onlineRadios.chunked(2)
+                items(chunks) { rowItems ->
                     Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            // Drag handle
-                            var dragAccumulatorY by remember { mutableStateOf(0f) }
-                            var hasMoved by remember { mutableStateOf(false) }
-
-                            Icon(
-                                imageVector = Icons.Default.DragHandle,
-                                contentDescription = "Mantener presionado y arrastrar para reordenar",
-                                tint = Color.Gray,
+                        for (radio in rowItems) {
+                            val isCurrentRadio = currentTrack?.filePath == radio.url
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isCurrentRadio) CyberCharcoal else CyberSurface
+                                ),
+                                shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier
-                                    .padding(end = 8.dp)
-                                    .size(24.dp)
-                                    .pointerInput(radio.url) {
-                                        detectDragGesturesAfterLongPress(
-                                            onDragStart = {
-                                                dragAccumulatorY = 0f
-                                                hasMoved = false
-                                            },
-                                            onDragEnd = {
-                                                dragAccumulatorY = 0f
-                                                hasMoved = false
-                                            },
-                                            onDragCancel = {
-                                                dragAccumulatorY = 0f
-                                                hasMoved = false
-                                            },
-                                            onDrag = { change, dragAmount ->
-                                                change.consume()
-                                                dragAccumulatorY += dragAmount.y
-                                                val threshold = 90f // pixels
-                                                if (!hasMoved) {
-                                                    if (dragAccumulatorY < -threshold) {
-                                                        viewModel.moveRadioUp(radio)
-                                                        hasMoved = true
-                                                    } else if (dragAccumulatorY > threshold) {
-                                                        viewModel.moveRadioDown(radio)
-                                                        hasMoved = true
+                                    .weight(1f)
+                                    .height(115.dp)
+                                    .clickable {
+                                        val playlistItem = PlaylistItem(
+                                            id = 0,
+                                            playlistId = -2,
+                                            fileName = radio.name,
+                                            filePath = radio.url,
+                                            fileSize = 0L
+                                        )
+                                        AudioPlayerManager.playTrack(context, playlistItem)
+                                    }
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().align(Alignment.TopStart),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        var dragAccumulatorY by remember { mutableStateOf(0f) }
+                                        var hasMoved by remember { mutableStateOf(false) }
+                                        Icon(
+                                            imageVector = Icons.Default.DragHandle,
+                                            contentDescription = "Arrastrar",
+                                            tint = Color.Gray.copy(alpha = 0.4f),
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .pointerInput(radio.url) {
+                                                    detectDragGesturesAfterLongPress(
+                                                        onDragStart = { dragAccumulatorY = 0f; hasMoved = false },
+                                                        onDragEnd = { dragAccumulatorY = 0f; hasMoved = false },
+                                                        onDragCancel = { dragAccumulatorY = 0f; hasMoved = false },
+                                                        onDrag = { change, dragAmount ->
+                                                            change.consume()
+                                                            dragAccumulatorY += dragAmount.y
+                                                            val threshold = 90f
+                                                            if (!hasMoved) {
+                                                                if (dragAccumulatorY < -threshold) {
+                                                                    viewModel.moveRadioUp(radio)
+                                                                    hasMoved = true
+                                                                } else if (dragAccumulatorY > threshold) {
+                                                                    viewModel.moveRadioDown(radio)
+                                                                    hasMoved = true
+                                                                }
+                                                            }
+                                                        }
+                                                    )
+                                                }
+                                        )
+
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = "Editar",
+                                                tint = CyberTeal,
+                                                modifier = Modifier
+                                                    .size(14.dp)
+                                                    .clickable {
+                                                        radioToEdit = radio
+                                                        editNameInput = radio.name
+                                                        editUrlInput = radio.url
+                                                        editLogoUriInput = radio.logoUri
+                                                    }
+                                                    .testTag("edit_radio_${radio.name}")
+                                            )
+                                            Icon(
+                                                imageVector = Icons.Default.DeleteOutline,
+                                                contentDescription = "Eliminar",
+                                                tint = WarningHotPink,
+                                                modifier = Modifier
+                                                    .size(14.dp)
+                                                    .clickable {
+                                                        radioToDelete = radio
+                                                    }
+                                                    .testTag("delete_radio_${radio.name}")
+                                            )
+                                        }
+                                    }
+
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth().align(Alignment.Center).padding(top = 12.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(if (isCurrentRadio) CyberTeal else CyberCharcoal),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (!radio.logoUri.isNullOrBlank()) {
+                                                AsyncImage(
+                                                    model = radio.logoUri,
+                                                    contentDescription = "Logo",
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            } else {
+                                                Icon(
+                                                    imageVector = if (isCurrentRadio && isPlaying) Icons.Default.VolumeUp else Icons.Default.Radio,
+                                                    contentDescription = null,
+                                                    tint = if (isCurrentRadio) CyberDark else Color.LightGray,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        MarqueeText(
+                                            text = radio.name,
+                                            color = if (isCurrentRadio) CyberTeal else Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                        )
+                                        Text(
+                                            text = radio.url,
+                                            color = Color.Gray,
+                                            fontSize = 8.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        if (rowItems.size < 2) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            } else {
+                items(onlineRadios) { radio ->
+                    val isCurrentRadio = currentTrack?.filePath == radio.url
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isCurrentRadio) CyberCharcoal else CyberSurface
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                val playlistItem = PlaylistItem(
+                                    id = 0,
+                                    playlistId = -2, // web streams indicator
+                                    fileName = radio.name,
+                                    filePath = radio.url,
+                                    fileSize = 0L
+                                )
+                                AudioPlayerManager.playTrack(context, playlistItem)
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                // Drag handle
+                                var dragAccumulatorY by remember { mutableStateOf(0f) }
+                                var hasMoved by remember { mutableStateOf(false) }
+
+                                Icon(
+                                    imageVector = Icons.Default.DragHandle,
+                                    contentDescription = "Mantener presionado y arrastrar para reordenar",
+                                    tint = Color.Gray,
+                                    modifier = Modifier
+                                        .padding(end = 6.dp)
+                                        .size(20.dp)
+                                        .pointerInput(radio.url) {
+                                            detectDragGesturesAfterLongPress(
+                                                onDragStart = {
+                                                    dragAccumulatorY = 0f
+                                                    hasMoved = false
+                                                },
+                                                onDragEnd = {
+                                                    dragAccumulatorY = 0f
+                                                    hasMoved = false
+                                                },
+                                                onDragCancel = {
+                                                    dragAccumulatorY = 0f
+                                                    hasMoved = false
+                                                },
+                                                onDrag = { change, dragAmount ->
+                                                    change.consume()
+                                                    dragAccumulatorY += dragAmount.y
+                                                    val threshold = 90f // pixels
+                                                    if (!hasMoved) {
+                                                        if (dragAccumulatorY < -threshold) {
+                                                            viewModel.moveRadioUp(radio)
+                                                            hasMoved = true
+                                                        } else if (dragAccumulatorY > threshold) {
+                                                            viewModel.moveRadioDown(radio)
+                                                            hasMoved = true
+                                                        }
                                                     }
                                                 }
-                                            }
-                                        )
-                                      }
-                            )
+                                            )
+                                        }
+                                )
 
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isCurrentRadio) CyberTeal else CyberCharcoal),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (!radio.logoUri.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = radio.logoUri,
-                                        contentDescription = "Logo",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isCurrentRadio) CyberTeal else CyberCharcoal),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (!radio.logoUri.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = radio.logoUri,
+                                            contentDescription = "Logo",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = if (isCurrentRadio && isPlaying) Icons.Default.VolumeUp else Icons.Default.Radio,
+                                            contentDescription = null,
+                                            tint = if (isCurrentRadio) CyberDark else Color.LightGray,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    MarqueeText(
+                                        text = radio.name,
+                                        color = if (isCurrentRadio) CyberTeal else Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        maxLines = 1
                                     )
-                                } else {
-                                    Icon(
-                                        imageVector = if (isCurrentRadio && isPlaying) Icons.Default.VolumeUp else Icons.Default.Radio,
-                                        contentDescription = null,
-                                        tint = if (isCurrentRadio) CyberDark else Color.LightGray
+                                    Text(
+                                        text = radio.url,
+                                        color = Color.Gray,
+                                        fontSize = 9.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = radio.name,
-                                    color = if (isCurrentRadio) CyberTeal else Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = radio.url,
-                                    color = Color.Gray,
-                                    fontSize = 10.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
 
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            IconButton(
-                                onClick = {
-                                    radioToEdit = radio
-                                    editNameInput = radio.name
-                                    editUrlInput = radio.url
-                                    editLogoUriInput = radio.logoUri
-                                },
-                                modifier = Modifier.testTag("edit_radio_${radio.name}")
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.padding(start = 4.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Edit,
                                     contentDescription = "Editar",
                                     tint = CyberTeal,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .clickable {
+                                            radioToEdit = radio
+                                            editNameInput = radio.name
+                                            editUrlInput = radio.url
+                                            editLogoUriInput = radio.logoUri
+                                        }
+                                        .testTag("edit_radio_${radio.name}")
                                 )
-                            }
-                            IconButton(
-                                onClick = {
-                                    radioToDelete = radio
-                                },
-                                modifier = Modifier.testTag("delete_radio_${radio.name}")
-                            ) {
                                 Icon(
                                     imageVector = Icons.Default.DeleteOutline,
                                     contentDescription = "Eliminar",
                                     tint = WarningHotPink,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .clickable {
+                                            radioToDelete = radio
+                                        }
+                                        .testTag("delete_radio_${radio.name}")
                                 )
                             }
                         }
@@ -6064,19 +15850,65 @@ fun DrawerControlPanelContent(
     drawerState: DrawerState
 ) {
     val context = LocalContext.current
+
     val currentTrack by AudioPlayerManager.currentTrack.collectAsStateWithLifecycle()
     val isPlaying by AudioPlayerManager.isPlaying.collectAsStateWithLifecycle()
     val isBuffering by AudioPlayerManager.isBuffering.collectAsStateWithLifecycle()
     val currentPosition by AudioPlayerManager.currentPosition.collectAsStateWithLifecycle()
     val duration by AudioPlayerManager.duration.collectAsStateWithLifecycle()
     val boostLevel by AudioPlayerManager.boostLevel.collectAsStateWithLifecycle()
+    val currentPresetName by AudioPlayerManager.currentPresetName.collectAsStateWithLifecycle()
+    val isEqEnabledState by AudioPlayerManager.isEqEnabled.collectAsStateWithLifecycle()
 
     val prefs = remember { context.getSharedPreferences("ftp_hub_settings", android.content.Context.MODE_PRIVATE) }
+    val queueList by AudioPlayerManager.playlistQueue.collectAsStateWithLifecycle()
+    var showLastTrackIndicator by remember { mutableStateOf(prefs.getBoolean("show_last_track_indicator", true)) }
+    var autoReconnectLive by remember { mutableStateOf(prefs.getBoolean("radio_auto_reconnect_live", false)) }
+    var reconnectPausedEnabled by remember { mutableStateOf(prefs.getBoolean("radio_reconnect_paused_enabled", false)) }
+    var twoTapsToPauseSetting by remember { mutableStateOf(prefs.getBoolean("two_taps_to_pause_enabled", false)) }
+    var ftpHeartbeatEnabled by remember { mutableStateOf(prefs.getBoolean("ftp_heartbeat_enabled", false)) }
+    var radioForceResumeOnBufferFreeze by remember { mutableStateOf(prefs.getBoolean("radio_force_resume_on_buffer_freeze", false)) }
+    var autoPlayOnStartup by remember { mutableStateOf(prefs.getBoolean("auto_play_on_startup", false)) }
+    var showRadioTelemetry by remember { mutableStateOf(prefs.getBoolean("show_radio_telemetry", true)) }
+
+    androidx.compose.runtime.DisposableEffect(context) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "show_last_track_indicator") {
+                showLastTrackIndicator = prefs.getBoolean("show_last_track_indicator", true)
+            } else if (key == "radio_auto_reconnect_live") {
+                autoReconnectLive = prefs.getBoolean("radio_auto_reconnect_live", false)
+            } else if (key == "radio_reconnect_paused_enabled") {
+                reconnectPausedEnabled = prefs.getBoolean("radio_reconnect_paused_enabled", false)
+            } else if (key == "two_taps_to_pause_enabled") {
+                twoTapsToPauseSetting = prefs.getBoolean("two_taps_to_pause_enabled", false)
+            } else if (key == "ftp_heartbeat_enabled") {
+                ftpHeartbeatEnabled = prefs.getBoolean("ftp_heartbeat_enabled", false)
+            } else if (key == "radio_force_resume_on_buffer_freeze") {
+                radioForceResumeOnBufferFreeze = prefs.getBoolean("radio_force_resume_on_buffer_freeze", false)
+            } else if (key == "auto_play_on_startup") {
+                autoPlayOnStartup = prefs.getBoolean("auto_play_on_startup", false)
+            } else if (key == "show_radio_telemetry") {
+                showRadioTelemetry = prefs.getBoolean("show_radio_telemetry", true)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            prefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
+    val isLastTrackInQueue = remember(currentTrack, queueList) {
+        queueList.size > 1 && currentTrack != null && queueList.last().filePath == currentTrack?.filePath
+    }
     var bufferLimitMins by remember { mutableStateOf(prefs.getInt("radio_buffer_limit_minutes", 120)) }
     var recordingPath by remember { mutableStateOf(prefs.getString("recording_destination_dir", "") ?: "") }
 
-    var isSettingsExpanded by remember { mutableStateOf(false) }
-    var isPodcastsExpanded by remember { mutableStateOf(false) }
+    var isSettingsExpanded by remember(drawerState.isOpen) { mutableStateOf(false) }
+    var refreshPodmarksByTrigger by remember { mutableStateOf(0) }
+    var podmarkToDeleteIndex by remember { mutableStateOf<Int?>(null) }
+    val podmarkDeleteClickCounts = remember { mutableStateMapOf<Int, Int>() }
+
+    val recentTracks by viewModel.recentTracks.collectAsStateWithLifecycle()
+    val allPodmarks = remember(refreshPodmarksByTrigger) { getPodmarks(context) }
     var showExitConfirmDialog by remember { mutableStateOf(false) }
 
     val onlineRadios by viewModel.onlineRadios.collectAsStateWithLifecycle()
@@ -6087,13 +15919,20 @@ fun DrawerControlPanelContent(
         java.io.File(context.filesDir, "grabaciones")
     }
 
-    var recordedFilesList by remember(recordingPath, isPodcastsExpanded) {
+    var recordedFilesList by remember(recordingPath) {
         mutableStateOf(
             if (targetDir.exists() && targetDir.isDirectory) {
                 targetDir.listFiles { _, name -> name.endsWith(".mp3") }?.sortedByDescending { it.lastModified() } ?: emptyList()
             } else {
                 emptyList()
             }
+        )
+    }
+
+    var lockedPodcastPaths by remember {
+        mutableStateOf(
+            context.getSharedPreferences("podcast_locks", android.content.Context.MODE_PRIVATE)
+                .getStringSet("locked_paths", emptySet()) ?: emptySet()
         )
     }
 
@@ -6135,11 +15974,11 @@ fun DrawerControlPanelContent(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.AudioFile, contentDescription = null, tint = CyberTeal)
+                Icon(Icons.Default.Settings, contentDescription = null, tint = CyberTeal)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    "SISTEMA DE AUDIO",
-                    color = Color.White,
+                    "Menú",
+                    color = CyberLight,
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp,
                     letterSpacing = 1.sp
@@ -6150,175 +15989,12 @@ fun DrawerControlPanelContent(
             }
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            "Reproductor y Potenciador de Graves integrado en la barra deslizante.",
-            color = Color.Gray,
-            fontSize = 10.sp
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Mini Media Player Panel (Sliding controller)
-        Text("REPRODUCCIÓN ACTUAL", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.sp)
         Spacer(modifier = Modifier.height(8.dp))
 
-        Card(
-            colors = CardDefaults.cardColors(containerColor = CyberSurface),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                if (currentTrack != null) {
-                    val isRadio = currentTrack!!.playlistId == -2
-                    if (isRadio) {
-                        val matchedRadio = onlineRadios.find { it.url == currentTrack!!.filePath }
-                        val logoUri = matchedRadio?.logoUri
-                        if (!logoUri.isNullOrBlank()) {
-                            AsyncImage(
-                                model = logoUri,
-                                contentDescription = "Logo Emisora",
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(CyberCharcoal),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            TrackCoverImage(
-                                filePath = currentTrack!!.filePath,
-                                modifier = Modifier.size(56.dp),
-                                backgroundColor = CyberGrey,
-                                placeholderIcon = Icons.Default.Radio,
-                                iconSize = 36.dp
-                            )
-                        }
-                    } else {
-                        TrackCoverImage(
-                            filePath = currentTrack!!.filePath,
-                            modifier = Modifier.size(56.dp),
-                            backgroundColor = CyberGrey,
-                            placeholderIcon = Icons.Default.MusicNote,
-                            iconSize = 36.dp
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = currentTrack!!.fileName,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = if (currentTrack!!.playlistId == -2) "Radio En Linea Streaming" else "Pista Local/FTP",
-                        color = Color.Gray,
-                        fontSize = 11.sp
-                    )
+        // Quick EQ presets menu
+        var isEqExpanded by remember(drawerState.isOpen) { mutableStateOf(false) }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    if (isBuffering) {
-                        CircularProgressIndicator(color = CyberTeal, modifier = Modifier.size(20.dp))
-                    } else if (currentTrack!!.playlistId != -2) {
-                        // Position Seek representation (Not on streams)
-                        val positionMinutes = (currentPosition / 1000) / 60
-                        val positionSeconds = (currentPosition / 1000) % 60
-                        val durationMinutes = (duration / 1000) / 60
-                        val durationSeconds = (duration / 1000) % 60
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                String.format("%02d:%02d", positionMinutes, positionSeconds),
-                                color = Color.Gray,
-                                fontSize = 10.sp
-                            )
-                            Text(
-                                String.format("%02d:%02d", durationMinutes, durationSeconds),
-                                color = Color.Gray,
-                                fontSize = 10.sp
-                            )
-                        }
-
-                        Slider(
-                            value = if (duration > 0) currentPosition.toFloat() else 0f,
-                            onValueChange = { AudioPlayerManager.seekTo(it.toLong()) },
-                            valueRange = 0f..(if (duration > 0) duration.toFloat() else 1f),
-                            colors = SliderDefaults.colors(
-                                thumbColor = CyberTeal,
-                                activeTrackColor = CyberTeal,
-                                inactiveTrackColor = CyberCharcoal
-                            )
-                        )
-                    } else {
-                        // Web streaming status indicators
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isPlaying) Color.Green else Color.Red)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isPlaying) "SINTONIZANDO EN VIVO" else "SINTONÍA EN PAUSA",
-                                color = Color.LightGray,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Player buttons row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = { AudioPlayerManager.playPrevious(context) }) {
-                            Icon(Icons.Default.SkipPrevious, contentDescription = "Anterior", tint = Color.White)
-                        }
-                        IconButton(
-                            onClick = { AudioPlayerManager.togglePlayPause() },
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(CyberTeal)
-                        ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = "Reproducir / Pausar",
-                                tint = CyberDark
-                            )
-                        }
-                        IconButton(onClick = { AudioPlayerManager.playNext(context) }) {
-                            Icon(Icons.Default.SkipNext, contentDescription = "Siguiente", tint = Color.White)
-                        }
-                    }
-
-                } else {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Icon(Icons.Default.MusicNote, contentDescription = null, tint = CyberGrey, modifier = Modifier.size(48.dp))
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text("No hay reproducción activa", color = Color.Gray, fontSize = 12.sp)
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Sound Booster Section
-        Text("DOCK GAIN (BOOST MX)", color = WarningHotPink, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.sp)
+        Text("ECUALIZACIÓN (EQUALIZER)", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.sp)
         Spacer(modifier = Modifier.height(8.dp))
 
         Card(
@@ -6328,320 +16004,192 @@ fun DrawerControlPanelContent(
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.GraphicEq, contentDescription = null, tint = WarningHotPink)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Amplificador Pro", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    }
-                    Text(
-                        text = "+${(boostLevel / 2000f * 100).roundToInt()}%",
-                        color = WarningHotPink,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Slider(
-                    value = boostLevel / 2000f,
-                    onValueChange = { AudioPlayerManager.setAudioBoost(it) },
-                    colors = SliderDefaults.colors(
-                        thumbColor = WarningHotPink,
-                        activeTrackColor = WarningHotPink,
-                        inactiveTrackColor = CyberCharcoal
-                    )
-                )
-
-                if (boostLevel > 800f) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "⚠ Aumentos altos pueden distorsionar o sobrecalentar los altavoces de tu terminal.",
-                        color = WarningHotPink,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Card 3: AJUSTES Y OPTIMIZACIÓN GLOBLALES
-        Card(
-            colors = CardDefaults.cardColors(containerColor = CyberSurface),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { isSettingsExpanded = !isSettingsExpanded }
-                        .padding(8.dp),
+                        .clickable { isEqExpanded = !isEqExpanded },
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Settings, contentDescription = null, tint = CyberTeal)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            "AJUSTES DEL BUFFER Y PORTABLES",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = null,
+                            tint = CyberTeal
                         )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text("Ecualizador de Audio", color = CyberLight, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(
+                                text = if (isEqEnabledState) "Preset activo: $currentPresetName" else "Desactivado (Haga clic para expandir)",
+                                color = if (isEqEnabledState) CyberTeal else Color.Gray,
+                                fontSize = 10.sp
+                            )
+                        }
                     }
                     Icon(
-                        imageVector = if (isSettingsExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = if (isSettingsExpanded) "Contraer" else "Expandir",
-                        tint = Color.LightGray
+                        imageVector = if (isEqExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = "Expandir presets",
+                        tint = Color.Gray
                     )
                 }
 
-                if (isSettingsExpanded) {
-                    HorizontalDivider(color = CyberCharcoal, modifier = Modifier.padding(vertical = 8.dp))
+                if (isEqExpanded) {
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                    Text(
-                        "Límite del Buffer de Radio",
-                        color = CyberTeal,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 4.dp)
-                    )
-                    Text(
-                        "Define el tamaño máximo en minutos para el archivo temporal de Timeshift para prevenir saturación de la memoria física.",
-                        color = Color.Gray,
-                        fontSize = 9.sp,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    // AMPLIFICADOR BOOSTER (0 a 200 de 25 en 25)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(CyberCharcoal.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                            .padding(12.dp)
                     ) {
-                        val limits = listOf(30, 60, 120, 240)
-                        limits.forEach { limit ->
-                            val isSelected = bufferLimitMins == limit
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .background(
-                                        if (isSelected) CyberTeal else CyberCharcoal,
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable {
-                                        bufferLimitMins = limit
-                                        prefs.edit().putInt("radio_buffer_limit_minutes", limit).apply()
-                                        android.widget.Toast.makeText(context, "Buffer de Radio establecido en $limit minutos", android.widget.Toast.LENGTH_SHORT).show()
-                                    }
-                                    .padding(vertical = 8.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "${limit}m",
-                                    color = if (isSelected) CyberDark else Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp
+                        val currentPercent = (boostLevel / 60f).roundToInt()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.GraphicEq,
+                                    contentDescription = null,
+                                    tint = WarningHotPink,
+                                    modifier = Modifier.size(18.dp)
                                 )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Amplificador Booster", color = CyberLight, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                             }
+                            Text(
+                                text = "+${currentPercent}%",
+                                color = WarningHotPink,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.height(6.dp))
+                        
+                        Slider(
+                            value = currentPercent.toFloat(),
+                            onValueChange = { newValue ->
+                                val steppedValue = (Math.round(newValue / 25f) * 25).toFloat()
+                                AudioPlayerManager.setAudioBoost(steppedValue / 100f)
+                            },
+                            valueRange = 0f..200f,
+                            steps = 7, // (200 - 0) / 25 - 1 = 7 steps for 25-unit intervals
+                            colors = SliderDefaults.colors(
+                                thumbColor = WarningHotPink,
+                                activeTrackColor = WarningHotPink,
+                                inactiveTrackColor = CyberCharcoal
+                            ),
+                            modifier = Modifier.fillMaxWidth().height(24.dp)
+                        )
+                        
+                        if (currentPercent > 25) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "⚠️ Ganancias altas pueden distorsionar el audio.",
+                                color = WarningHotPink.copy(alpha = 0.8f),
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Text(
-                        "Ruta de Podcasts y Grabaciones",
-                        color = CyberTeal,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 4.dp)
-                    )
-                    Text(
-                        "Escribe o selecciona gráficamente el destino absoluto para salvar de forma portable los fragmentos grabados.",
-                        color = Color.Gray,
-                        fontSize = 9.sp,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-
+                    
+                    Spacer(modifier = Modifier.height(14.dp))
+                    
+                    // ON/OFF main EQ Switch
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        OutlinedTextField(
-                            value = if (recordingPath.isEmpty()) "Carpeta de Grabaciones (Predeterminado)" else recordingPath,
-                            onValueChange = {
-                                recordingPath = it
-                                prefs.edit().putString("recording_destination_dir", it).apply()
+                        Text("Activar Ecualizador", color = Color.LightGray, fontSize = 11.sp)
+                        Switch(
+                            checked = isEqEnabledState,
+                            onCheckedChange = { checked ->
+                                AudioPlayerManager.setEqualizerEnabled(checked)
+                                Toast.makeText(context, if (checked) "Ecualizador Activado" else "Ecualizador Desactivado", Toast.LENGTH_SHORT).show()
                             },
-                            readOnly = true,
-                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = Color.White),
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = CyberTeal,
-                                unfocusedBorderColor = CyberCharcoal,
-                                focusedContainerColor = CyberDark,
-                                unfocusedContainerColor = CyberDark
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = CyberDark,
+                                checkedTrackColor = CyberTeal,
+                                uncheckedThumbColor = Color.Gray,
+                                uncheckedTrackColor = CyberCharcoal
                             )
                         )
-
-                        IconButton(
-                            onClick = { launcher.launch(null) },
-                            modifier = Modifier
-                                .size(48.dp)
-                                .background(CyberCharcoal, RoundedCornerShape(8.dp))
-                        ) {
-                            Icon(Icons.Default.FolderOpen, contentDescription = "Elegir Carpeta", tint = CyberTeal)
-                        }
                     }
 
-                    if (recordingPath.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        TextButton(
-                            onClick = {
-                                recordingPath = ""
-                                prefs.edit().putString("recording_destination_dir", "").apply()
-                                android.widget.Toast.makeText(context, "Ruta restaurada por defecto", android.widget.Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.align(Alignment.End)
-                        ) {
-                            Text("Restaurar Carpeta Interna", color = WarningHotPink, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-        }
+                    Spacer(modifier = Modifier.height(10.dp))
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Card 4: MIS PODCASTS / GRABACIONES DIRECTOS INDEPENDIENTES
-        Card(
-            colors = CardDefaults.cardColors(containerColor = CyberSurface),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { isPodcastsExpanded = !isPodcastsExpanded }
-                        .padding(8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.AudioFile, contentDescription = null, tint = WarningHotPink)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            "MIS PODCASTS GRABADOS",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                    }
-                    Icon(
-                        imageVector = if (isPodcastsExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = if (isPodcastsExpanded) "Contraer" else "Expandir",
-                        tint = Color.LightGray
+                    // Flow-like grid containing all preset buttons
+                    val presetsList = listOf(
+                        Triple("Plana", "", "Plana"),
+                        Triple("Mega Bass", "🔊", "Mega Bass"),
+                        Triple("Dynamic Bass", "🔥", "Dynamic Bass"),
+                        Triple("Voz Clara", "🎙️", "Voz Clara"),
+                        Triple("Metal/Rock", "🎸", "Metal/Rock"),
+                        Triple("Vocal", "🗣️", "Vocal"),
+                        Triple("Ambiental", "🌌", "Ambiental")
                     )
-                }
 
-                if (isPodcastsExpanded) {
-                    HorizontalDivider(color = CyberCharcoal, modifier = Modifier.padding(vertical = 8.dp))
-
-                    if (recordedFilesList.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.AudioFile, contentDescription = null, tint = CyberCharcoal, modifier = Modifier.size(36.dp))
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text("No hay podcasts grabados en este directorio", color = Color.Gray, fontSize = 11.sp)
-                            }
-                        }
-                    } else {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            recordedFilesList.forEach { file ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(CyberDark, RoundedCornerShape(8.dp))
-                                        .padding(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = file.name,
-                                            color = Color.White,
-                                            fontSize = 11.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = "${String.format("%.2f", file.length() / (1024f * 1024f))} MB",
-                                            color = CyberTeal,
-                                            fontSize = 10.sp
-                                        )
-                                    }
-
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        IconButton(
-                                            onClick = {
-                                                val playItem = com.example.data.model.PlaylistItem(
-                                                    id = 0,
-                                                    playlistId = -3,
-                                                    fileName = file.name,
-                                                    filePath = file.absolutePath,
-                                                    fileSize = file.length(),
-                                                    durationText = "Podcast Rec"
-                                                )
-                                                AudioPlayerManager.playTrack(context, playItem)
-                                                scope.launch { drawerState.close() }
-                                                android.widget.Toast.makeText(context, "Reproduciendo grabaciones: ${file.name}", android.widget.Toast.LENGTH_SHORT).show()
-                                            },
-                                            modifier = Modifier.size(36.dp)
-                                        ) {
-                                            Icon(Icons.Default.PlayArrow, contentDescription = "Reproducir", tint = CyberTeal, modifier = Modifier.size(20.dp))
-                                        }
-
-                                        IconButton(
-                                            onClick = {
-                                                try {
-                                                    if (file.delete()) {
-                                                        val newTarget = java.io.File(targetDir.absolutePath)
-                                                        recordedFilesList = if (newTarget.exists() && newTarget.isDirectory) {
-                                                            newTarget.listFiles { _, name -> name.endsWith(".mp3") }?.sortedByDescending { it.lastModified() } ?: emptyList()
-                                                        } else {
-                                                            emptyList()
-                                                        }
-                                                        android.widget.Toast.makeText(context, "Grabación eliminada del disco", android.widget.Toast.LENGTH_SHORT).show()
-                                                    } else {
-                                                        android.widget.Toast.makeText(context, "Error al eliminar archivo", android.widget.Toast.LENGTH_SHORT).show()
-                                                    }
-                                                } catch (e: Exception) {
-                                                    android.widget.Toast.makeText(context, "Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Seleccionar Preset:", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                        
+                        val rows = presetsList.chunked(2)
+                        rows.forEach { rowItems ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                rowItems.forEach { (displayName, emoji, pName) ->
+                                    val isSelected = isEqEnabledState && currentPresetName == pName
+                                    Card(
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isSelected) CyberTeal else CyberCharcoal
+                                        ),
+                                        border = BorderStroke(1.dp, if (isSelected) CyberTeal else Color.Gray.copy(alpha = 0.2f)),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable {
+                                                if (!isEqEnabledState) {
+                                                    AudioPlayerManager.setEqualizerEnabled(true)
                                                 }
-                                            },
-                                            modifier = Modifier.size(36.dp)
+                                                when (pName) {
+                                                    "Plana" -> AudioPlayerManager.setFlatPreset()
+                                                    "Mega Bass" -> AudioPlayerManager.setSubwooferPreset()
+                                                    "Dynamic Bass" -> AudioPlayerManager.setDynamicBassBoostPreset()
+                                                    "Voz Clara" -> AudioPlayerManager.setVozClaraPreset()
+                                                    "Metal/Rock" -> AudioPlayerManager.setMetalRockPreset()
+                                                    "Vocal" -> AudioPlayerManager.setVocalPreset()
+                                                    "Ambiental" -> AudioPlayerManager.setAmbientalPreset()
+                                                }
+                                                Toast.makeText(context, "Fx: $pName activo", Toast.LENGTH_SHORT).show()
+                                            }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
                                         ) {
-                                            Icon(Icons.Default.Delete, contentDescription = "Eliminar", tint = WarningHotPink, modifier = Modifier.size(20.dp))
+                                            if (emoji.isNotEmpty()) {
+                                                Text(emoji, fontSize = 13.sp)
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                            }
+                                            Text(
+                                                text = displayName,
+                                                color = if (isSelected) CyberDark else Color.White,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                fontSize = 11.sp
+                                            )
                                         }
                                     }
+                                }
+                                if (rowItems.size == 1) {
+                                    Spacer(modifier = Modifier.weight(1f))
                                 }
                             }
                         }
@@ -6650,9 +16198,812 @@ fun DrawerControlPanelContent(
             }
         }
 
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // RECONEXIÓN DE RADIO (Collapsible/dropdown layout)
+        var isReconnectionMenuExpanded by remember(drawerState.isOpen) { mutableStateOf(false) }
+
+        Card(
+            colors = CardDefaults.cardColors(containerColor = CyberSurface),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isReconnectionMenuExpanded = !isReconnectionMenuExpanded }
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Radio,
+                            contentDescription = null,
+                            tint = CyberTeal,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "RECONEXIÓN DE RADIO",
+                            color = CyberLight,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
+                    Icon(
+                        imageVector = if (isReconnectionMenuExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (isReconnectionMenuExpanded) "Contraer" else "Expandir",
+                        tint = Color.LightGray
+                    )
+                }
+
+                if (isReconnectionMenuExpanded) {
+                    HorizontalDivider(color = CyberCharcoal, modifier = Modifier.padding(vertical = 8.dp))
+
+                    Text(
+                        "Configura el comportamiento automático del reproductor de radio cuando sufra un corte de red:",
+                        color = Color.LightGray,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Nombres de Canciones y Artistas", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                            Text("Muestra metadatos en tiempo real sobre la emisora en reproducción", color = Color.Gray, fontSize = 9.sp)
+                        }
+                        val radioMetadataEnabled by AudioPlayerManager.radioMetadataEnabled.collectAsStateWithLifecycle()
+                        Switch(
+                            checked = radioMetadataEnabled,
+                            onCheckedChange = { checked ->
+                                AudioPlayerManager.setRadioMetadataEnabled(context, checked)
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = CyberDark,
+                                checkedTrackColor = CyberTeal,
+                                uncheckedThumbColor = Color.Gray,
+                                uncheckedTrackColor = CyberCharcoal
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Auto-reconectar en Vivo", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                            Text("Sintoniza el directo de inmediato tras un corte", color = Color.Gray, fontSize = 9.sp)
+                        }
+                        Switch(
+                            checked = autoReconnectLive,
+                            onCheckedChange = { checked ->
+                                autoReconnectLive = checked
+                                if (checked) {
+                                    reconnectPausedEnabled = false
+                                    prefs.edit()
+                                        .putBoolean("radio_auto_reconnect_live", true)
+                                        .putBoolean("radio_reconnect_paused_enabled", false)
+                                        .apply()
+                                } else {
+                                    prefs.edit().putBoolean("radio_auto_reconnect_live", false).apply()
+                                }
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = CyberDark,
+                                checkedTrackColor = CyberTeal,
+                                uncheckedThumbColor = Color.Gray,
+                                uncheckedTrackColor = CyberCharcoal
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Reanudar en Pausa", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                            Text("Aísla el buffer y prepara la radio pausada tras un corte", color = Color.Gray, fontSize = 9.sp)
+                        }
+                        Switch(
+                            checked = reconnectPausedEnabled,
+                            onCheckedChange = { checked ->
+                                reconnectPausedEnabled = checked
+                                if (checked) {
+                                    autoReconnectLive = false
+                                    prefs.edit()
+                                        .putBoolean("radio_reconnect_paused_enabled", true)
+                                        .putBoolean("radio_auto_reconnect_live", false)
+                                        .apply()
+                                } else {
+                                    prefs.edit().putBoolean("radio_reconnect_paused_enabled", false).apply()
+                                }
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = CyberDark,
+                                checkedTrackColor = CyberTeal,
+                                uncheckedThumbColor = Color.Gray,
+                                uncheckedTrackColor = CyberCharcoal
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Pausa de Radio a Doble Toque", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                            Text("Evita pausas accidentales requiriendo dos pulsaciones", color = Color.Gray, fontSize = 9.sp)
+                        }
+                        Switch(
+                            checked = twoTapsToPauseSetting,
+                            onCheckedChange = { checked ->
+                                twoTapsToPauseSetting = checked
+                                prefs.edit().putBoolean("two_taps_to_pause_enabled", checked).apply()
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = CyberDark,
+                                checkedTrackColor = CyberTeal,
+                                uncheckedThumbColor = Color.Gray,
+                                uncheckedTrackColor = CyberCharcoal
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("FTP Keep-Alive / Latidos", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                            Text("Evita desconexiones temporales por FTP enviando latidos periódicos", color = Color.Gray, fontSize = 9.sp)
+                        }
+                        Switch(
+                            checked = ftpHeartbeatEnabled,
+                            onCheckedChange = { checked ->
+                                ftpHeartbeatEnabled = checked
+                                prefs.edit().putBoolean("ftp_heartbeat_enabled", checked).apply()
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = CyberDark,
+                                checkedTrackColor = CyberTeal,
+                                uncheckedThumbColor = Color.Gray,
+                                uncheckedTrackColor = CyberCharcoal
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Forzar Reanudación Automática", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                            Text("Reconecta y reanuda el buffer FTP congelado automáticamente", color = Color.Gray, fontSize = 9.sp)
+                        }
+                        Switch(
+                            checked = radioForceResumeOnBufferFreeze,
+                            onCheckedChange = { checked ->
+                                radioForceResumeOnBufferFreeze = checked
+                                prefs.edit().putBoolean("radio_force_resume_on_buffer_freeze", checked).apply()
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = CyberDark,
+                                checkedTrackColor = CyberTeal,
+                                uncheckedThumbColor = Color.Gray,
+                                uncheckedTrackColor = CyberCharcoal
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Ver Telemetría y Búfer (15s)", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                            Text("Muestra la estabilidad, velocidad e historial de búfer (15s) en el reproductor", color = Color.Gray, fontSize = 9.sp)
+                        }
+                        Switch(
+                            checked = showRadioTelemetry,
+                            onCheckedChange = { checked ->
+                                showRadioTelemetry = checked
+                                prefs.edit().putBoolean("show_radio_telemetry", checked).apply()
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = CyberDark,
+                                checkedTrackColor = CyberTeal,
+                                uncheckedThumbColor = Color.Gray,
+                                uncheckedTrackColor = CyberCharcoal
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // SISTEMA DE LOGS VISUALES (CONSOLA FTP / BUFFER)
+        Text("CONSOLA DE DEPURACIÓN Y LOGS", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.sp)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        var isConsoleVisible by remember { mutableStateOf(false) }
+        val visualLogs by viewModel.visualLogs.collectAsStateWithLifecycle(emptyList())
+
+        Card(
+            colors = CardDefaults.cardColors(containerColor = CyberSurface),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isConsoleVisible = !isConsoleVisible }
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.BugReport,
+                            contentDescription = null,
+                            tint = CyberTeal,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Consola de Logs FTP / Buffer", color = CyberLight, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                    Text(
+                        if (isConsoleVisible) "OCULTAR" else "MOSTRAR PANEL",
+                        color = CyberTeal,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                if (isConsoleVisible) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp)
+                            .background(Color.Black, RoundedCornerShape(8.dp))
+                            .border(1.dp, CyberCharcoal, RoundedCornerShape(8.dp))
+                            .padding(8.dp)
+                    ) {
+                        if (visualLogs.isEmpty()) {
+                            Text(
+                                "No hay registros disponibles. Los logs del buffer FTP y tiempos de respuesta aparecerán aquí.",
+                                color = Color.Gray,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.align(Alignment.Center)
+                            )
+                        } else {
+                            val lazyScrollState = androidx.compose.foundation.lazy.rememberLazyListState()
+                            
+                            LaunchedEffect(visualLogs.size) {
+                                if (visualLogs.isNotEmpty()) {
+                                    lazyScrollState.animateScrollToItem(visualLogs.size - 1)
+                                }
+                            }
+                            
+                            LazyColumn(
+                                state = lazyScrollState,
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                items(visualLogs) { log ->
+                                    Text(
+                                        text = log,
+                                        color = Color(0xFF00FFCC),
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier.padding(bottom = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(
+                            onClick = { viewModel.clearVisualLogs() },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = null, tint = WarningHotPink, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Limpiar Consola", color = WarningHotPink, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // MODO SILENCIOSO (NUEVO v6.5 - EN MENÚ DESLIZANTE)
+        var silentModeEnabledInDrawer by remember { mutableStateOf(prefs.getBoolean("silent_mode_enabled", false)) }
+
+        Text("INTERFAZ Y NOTIFICACIONES 🔔", color = CyberTeal, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.sp)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Card(
+            colors = CardDefaults.cardColors(containerColor = CyberSurface),
+            border = BorderStroke(1.dp, if (silentModeEnabledInDrawer) Color.Red.copy(alpha = 0.4f) else CyberTeal.copy(alpha = 0.2f)),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .clickable {
+                        val newValue = !silentModeEnabledInDrawer
+                        silentModeEnabledInDrawer = newValue
+                        prefs.edit().putBoolean("silent_mode_enabled", newValue).apply()
+                    }
+                    .padding(14.dp)
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Icon(
+                        imageVector = if (silentModeEnabledInDrawer) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                        contentDescription = "Modo silencio",
+                        tint = if (silentModeEnabledInDrawer) Color.Red else CyberTeal,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "Modo Silencio",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (silentModeEnabledInDrawer) "Mensajes emergentes (Toasts) desactivados" else "Mensajes emergentes (Toasts) activados",
+                            color = Color.Gray,
+                            fontSize = 8.sp
+                        )
+                    }
+                }
+                Switch(
+                    checked = silentModeEnabledInDrawer,
+                    onCheckedChange = { newValue ->
+                        silentModeEnabledInDrawer = newValue
+                        prefs.edit().putBoolean("silent_mode_enabled", newValue).apply()
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = CyberDark,
+                        checkedTrackColor = Color.Red,
+                        uncheckedThumbColor = Color.Gray,
+                        uncheckedTrackColor = CyberCharcoal
+                    )
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Footer button inside drawer
+        // SLEEP TIMER (TEMPORIZADOR DE APAGADO CYBERPUNK - REUBICADO v5.1)
+        val sleepTimerRemainingSec by AudioPlayerManager.sleepTimerRemainingSec.collectAsStateWithLifecycle()
+        var showCustomTimerDialog by remember { mutableStateOf(false) }
+        var isSleepTimerMenuExpanded by remember(drawerState.isOpen) { mutableStateOf(false) }
+
+        val sleepTimerActive = sleepTimerRemainingSec > 0
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = if (sleepTimerActive) Color(0xFF0D2B1A) else CyberSurface
+            ),
+            border = BorderStroke(
+                width = if (sleepTimerActive) 2.dp else 1.dp,
+                color = if (sleepTimerActive) Color(0xFF2ECC71) else Color.Gray.copy(alpha = 0.15f)
+            ),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp)
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (sleepTimerActive) Color(0xFF2ECC71).copy(alpha = 0.2f) else Color.Transparent)
+                        .clickable { isSleepTimerMenuExpanded = !isSleepTimerMenuExpanded }
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.AccessTime,
+                            contentDescription = "Temporizador",
+                            tint = if (sleepTimerActive) Color(0xFF2ECC71) else Color.Gray,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = if (sleepTimerActive) "TEMPORIZADOR: ACTIVO ⏲️" else "TEMPORIZADOR DE APAGADO",
+                                color = if (sleepTimerActive) Color(0xFF2ECC71) else CyberLight,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                            if (sleepTimerActive) {
+                                val minutesLeft = sleepTimerRemainingSec / 60
+                                val secondsLeft = sleepTimerRemainingSec % 60
+                                Text(
+                                    text = "Apagado automático en: ${String.format("%02d:%02d", minutesLeft, secondsLeft)}",
+                                    color = Color(0xFF2ECC71),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                    Icon(
+                        imageVector = if (isSleepTimerMenuExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (isSleepTimerMenuExpanded) "Contraer" else "Expandir",
+                        tint = if (sleepTimerActive) Color(0xFF2ECC71) else Color.LightGray
+                    )
+                }
+
+                if (isSleepTimerMenuExpanded) {
+                    HorizontalDivider(color = CyberCharcoal, modifier = Modifier.padding(vertical = 8.dp))
+
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Detiene la reproducción automáticamente",
+                                color = Color.Gray,
+                                fontSize = 10.sp
+                            )
+
+                            if (sleepTimerRemainingSec > 0) {
+                                Button(
+                                    onClick = { AudioPlayerManager.cancelSleepTimer() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink.copy(alpha = 0.2f), contentColor = WarningHotPink),
+                                    shape = RoundedCornerShape(6.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(28.dp)
+                                ) {
+                                    Text("CANCELAR", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        if (sleepTimerRemainingSec > 0) {
+                            val progressFraction = sleepTimerRemainingSec.toFloat() / (AudioPlayerManager.sleepTimerOriginalMin.value * 60f)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Progreso", color = Color.Gray, fontSize = 10.sp)
+                                LinearProgressIndicator(
+                                    progress = progressFraction.coerceIn(0f, 1f),
+                                    color = CyberTeal,
+                                    trackColor = CyberCharcoal,
+                                    modifier = Modifier
+                                        .width(100.dp)
+                                        .height(4.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                )
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val times = listOf(5, 15, 30, 45)
+                                times.forEach { t ->
+                                    Button(
+                                        onClick = { AudioPlayerManager.startSleepTimer(t, context) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal, contentColor = Color.White),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.weight(1f).height(32.dp),
+                                        contentPadding = PaddingValues(horizontal = 2.dp)
+                                    ) {
+                                        Text("${t}m", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                Button(
+                                    onClick = { showCustomTimerDialog = true },
+                                    colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1.2f).height(32.dp),
+                                    contentPadding = PaddingValues(horizontal = 2.dp)
+                                ) {
+                                    Text("Otro...", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showCustomTimerDialog) {
+            var inputMinutes by remember { mutableStateOf("") }
+            Dialog(onDismissRequest = { showCustomTimerDialog = false }) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "Tiempo Personalizado ⏲️",
+                            color = CyberTeal,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+
+                        Text(
+                            text = "Escribe el número de minutos después de los cuales quieres detener la música:",
+                            color = Color.LightGray,
+                            fontSize = 11.sp
+                        )
+
+                        OutlinedTextField(
+                            value = inputMinutes,
+                            onValueChange = { inputMinutes = it.filter { char -> char.isDigit() } },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            placeholder = { Text("Ej. 90", color = Color.Gray, fontSize = 11.sp) },
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = Color.White),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CyberTeal,
+                                unfocusedBorderColor = CyberCharcoal
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 1
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(onClick = { showCustomTimerDialog = false }) {
+                                Text("CANCELAR", color = Color.Gray, fontSize = 11.sp)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    val mins = inputMinutes.toIntOrNull() ?: 0
+                                    if (mins > 0) {
+                                        AudioPlayerManager.startSleepTimer(mins, context)
+                                        showCustomTimerDialog = false
+                                    } else {
+                                        Toast.makeText(context, "Por favor introduce un número mayor que 0", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                  Text("INICIAR", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // AUTODESCONEXIÓN FTP (NUEVO v5.2 - EN MENÚ DESLIZANTE)
+        val drawerPrefs = remember { context.getSharedPreferences("ftp_hub_settings", android.content.Context.MODE_PRIVATE) }
+        var drawerFtpTimeoutMins by remember { mutableStateOf(drawerPrefs.getInt("ftp_timeout_minutes", 0)) }
+        var isFtpTimeoutMenuExpanded by remember(drawerState.isOpen) { mutableStateOf(false) }
+        val ftpTimeoutRemainingSec by viewModel.ftpTimeoutRemainingSec.collectAsStateWithLifecycle()
+        val ftpTimeoutActive = drawerFtpTimeoutMins > 0 && ftpTimeoutRemainingSec > 0
+
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = if (ftpTimeoutActive) Color(0xFF0D2B1A) else CyberSurface
+            ),
+            border = BorderStroke(
+                width = if (ftpTimeoutActive) 2.dp else 1.dp,
+                color = if (ftpTimeoutActive) Color(0xFF2ECC71) else Color.Gray.copy(alpha = 0.15f)
+            ),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp)
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (ftpTimeoutActive) Color(0xFF2ECC71).copy(alpha = 0.2f) else Color.Transparent)
+                        .clickable { isFtpTimeoutMenuExpanded = !isFtpTimeoutMenuExpanded }
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.PowerSettingsNew,
+                            contentDescription = "Autodesconexión",
+                            tint = if (ftpTimeoutActive) Color(0xFF2ECC71) else CyberTeal,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = if (ftpTimeoutActive) "AUTODESCONEXIÓN: ACTIVA 🔌" else "AUTODESCONEXIÓN FTP",
+                                color = if (ftpTimeoutActive) Color(0xFF2ECC71) else CyberLight,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                            if (ftpTimeoutActive) {
+                                val minutesLeft = ftpTimeoutRemainingSec / 60
+                                val secondsLeft = ftpTimeoutRemainingSec % 60
+                                Text(
+                                    text = "Desconexión en: ${String.format("%02d:%02d", minutesLeft, secondsLeft)}",
+                                    color = Color(0xFF2ECC71),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            } else {
+                                val statusLabel = if (drawerFtpTimeoutMins == 0) "Desactivado (Nunca)" else "Desconectar tras $drawerFtpTimeoutMins minutos (Pausa)"
+                                Text(
+                                    text = statusLabel,
+                                    color = Color.Gray,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
+                    Icon(
+                        imageVector = if (isFtpTimeoutMenuExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (isFtpTimeoutMenuExpanded) "Contraer" else "Expandir",
+                        tint = if (ftpTimeoutActive) Color(0xFF2ECC71) else Color.LightGray
+                    )
+                }
+
+                if (isFtpTimeoutMenuExpanded) {
+                    HorizontalDivider(color = CyberCharcoal, modifier = Modifier.padding(vertical = 8.dp))
+
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Cierre automático por inactividad", color = Color.Gray, fontSize = 10.sp)
+                            if (ftpTimeoutActive) {
+                                Button(
+                                    onClick = {
+                                        drawerFtpTimeoutMins = 0
+                                        drawerPrefs.edit().putInt("ftp_timeout_minutes", 0).apply()
+                                        Toast.makeText(context, "Autodesconexión FTP deactivada", Toast.LENGTH_SHORT).show()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink.copy(alpha = 0.2f), contentColor = WarningHotPink),
+                                    shape = RoundedCornerShape(6.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(28.dp)
+                                ) {
+                                    Text("CANCELAR", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        if (ftpTimeoutActive) {
+                            val ftpOriginalSec = drawerFtpTimeoutMins * 60f
+                            val ftpProgressFraction = ftpTimeoutRemainingSec.toFloat() / ftpOriginalSec
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Progreso", color = Color.Gray, fontSize = 10.sp)
+                                LinearProgressIndicator(
+                                    progress = ftpProgressFraction.coerceIn(0f, 1f),
+                                    color = CyberTeal,
+                                    trackColor = CyberCharcoal,
+                                    modifier = Modifier
+                                        .width(100.dp)
+                                        .height(4.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val ftpOptions = listOf(
+                                0 to "Nunca",
+                                30 to "30m",
+                                60 to "60m",
+                                120 to "120m"
+                            )
+                            ftpOptions.forEach { (mins, label) ->
+                                val isSelected = drawerFtpTimeoutMins == mins
+                                Button(
+                                    onClick = {
+                                        drawerFtpTimeoutMins = mins
+                                        drawerPrefs.edit().putInt("ftp_timeout_minutes", mins).apply()
+                                        Toast.makeText(context, "Inactividad FTP: $label", Toast.LENGTH_SHORT).show()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isSelected) CyberTeal else CyberCharcoal,
+                                        contentColor = if (isSelected) CyberDark else Color.White
+                                    ),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f).height(32.dp),
+                                    contentPadding = PaddingValues(horizontal = 2.dp)
+                                ) {
+                                    Text(label, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Footer button inside drawer (Placed above Close Application)
         Button(
             onClick = { scope.launch { drawerState.close() } },
             colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal, contentColor = Color.White),
@@ -6706,12 +17057,98 @@ fun DrawerControlPanelContent(
                 containerColor = CyberSurface
             )
         }
+
+        if (podmarkToDeleteIndex != null) {
+            val idxToDelete = podmarkToDeleteIndex!!
+            val pm = allPodmarks.getOrNull(idxToDelete)
+            AlertDialog(
+                onDismissRequest = { podmarkToDeleteIndex = null },
+                title = { Text("🗑️ Eliminar Podmark", color = WarningHotPink, fontWeight = FontWeight.Bold) },
+                text = { Text("¿Deseas eliminar este Podmark guardado para '${pm?.trackName}' a las ${pm?.timestampText}?", color = Color.LightGray) },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            deletePodmark(context, idxToDelete)
+                            refreshPodmarksByTrigger++
+                            podmarkToDeleteIndex = null
+                            android.widget.Toast.makeText(context, "Podmark eliminado", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink)
+                    ) {
+                        Text("Eliminar", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { podmarkToDeleteIndex = null }) {
+                        Text("Cancelar", color = Color.Gray)
+                    }
+                },
+                containerColor = CyberSurface
+            )
+        }
+    }
+}
+
+private val coverImageMemoryCache = com.example.data.repository.AudioPlayerManager.coverImageMemoryCache
+private val pathsWithNoCover = com.example.data.repository.AudioPlayerManager.pathsWithNoCover
+
+fun findCommonPrefix(paths: List<String>): String {
+    if (paths.isEmpty()) return ""
+    val first = paths.first()
+    var common = first.substring(0, first.lastIndexOf('/').coerceAtLeast(0))
+    for (path in paths) {
+        while (!path.startsWith(common) && common.isNotEmpty()) {
+            val lastSlash = common.lastIndexOf('/')
+            common = if (lastSlash >= 0) common.substring(0, lastSlash) else ""
+        }
+    }
+    return common.trimEnd('/')
+}
+
+fun getFolderSegments(filePath: String, commonPrefix: String): List<String> {
+    if (commonPrefix.isEmpty()) {
+        val parentPath = try {
+            val lastSlash = filePath.lastIndexOf('/')
+            if (lastSlash >= 0) filePath.substring(0, lastSlash) else ""
+        } catch (_: Exception) { "" }
+        return parentPath.split('/').filter { it.isNotBlank() }
+    }
+    if (!filePath.startsWith(commonPrefix)) return emptyList()
+    val relative = filePath.substring(commonPrefix.length).trim('/')
+    val parts = relative.split('/').filter { it.isNotBlank() }
+    return if (parts.size > 1) {
+        parts.dropLast(1)
+    } else {
+        emptyList()
     }
 }
 
 // --- EXTRACTOR DE METADATOS MP3 Y CARÁTULAS DE AUDIO EN TIEMPO REAL ---
 
 fun getMp3Cover(context: android.content.Context, path: String): android.graphics.Bitmap? {
+    if (pathsWithNoCover.contains(path)) return null
+    val cached = coverImageMemoryCache.get(path)
+    if (cached != null) return cached
+
+    val hash = path.hashCode()
+    val lastDot = path.lastIndexOf('.')
+    val ext = if (lastDot != -1) {
+        val e = path.substring(lastDot + 1).lowercase()
+        if (e in setOf("mp3", "wav", "m4a", "ogg", "flac", "aac")) e else "mp3"
+    } else "mp3"
+    val coverCacheFile = com.example.data.repository.AudioPlayerManager.getScannedCoverFile(context, hash, ext)
+
+    // 1. Try decoding directly as a saved raw image file first (ultra-fast persistent cache bypass)
+    if (coverCacheFile.exists() && coverCacheFile.length() > 0) {
+        try {
+            val bmp = android.graphics.BitmapFactory.decodeFile(coverCacheFile.absolutePath)
+            if (bmp != null) {
+                coverImageMemoryCache.put(path, bmp)
+                return bmp
+            }
+        } catch (_: Exception) {}
+    }
+
     val retriever = android.media.MediaMetadataRetriever()
     return try {
         if (path.startsWith("content://")) {
@@ -6720,41 +17157,41 @@ fun getMp3Cover(context: android.content.Context, path: String): android.graphic
                 retriever.setDataSource(pfd.fileDescriptor)
             }
         } else if (path.startsWith("ftp://")) {
-            val hash = path.hashCode()
-            val coverCacheFile = java.io.File(context.cacheDir, "ftp_cover_$hash.mp3")
+            // Since direct image decoding failed, if the file exists on disk it is likely a truncated 48KB scan file.
+            // Let's delete it so we can download a proper 1.5MB on-the-fly sample for complete extraction.
+            if (coverCacheFile.exists()) {
+                try { coverCacheFile.delete() } catch (_: Exception) {}
+            }
+            val parts = path.substring(6).split("/", limit = 2)
+            val ftpConnectionId = parts.getOrNull(0)?.toIntOrNull()
+            val remoteSubPath = "/" + (parts.getOrNull(1) ?: "")
+            if (ftpConnectionId != null) {
+                kotlinx.coroutines.runBlocking {
+                    try {
+                        val db = com.example.data.database.AppDatabase.getDatabase(context)
+                        val targetConn = db.ftpConnectionDao().getAllConnectionsOnce().firstOrNull { it.id == ftpConnectionId }
+                        if (targetConn != null) {
+                            com.example.data.repository.FtpClientManager.connect(targetConn)
+                            com.example.data.repository.FtpClientManager.downloadPartialFileToCache(
+                                remotePath = remoteSubPath,
+                                localFile = coverCacheFile,
+                                maxBytes = 1500 * 1024L
+                            )
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("RotatingCdPlayer", "Error loading FTP cover: ${e.message}")
+                    }
+                }
+            }
             if (coverCacheFile.exists() && coverCacheFile.length() > 0) {
                 retriever.setDataSource(coverCacheFile.absolutePath)
             } else {
-                val parts = path.substring(6).split("/", limit = 2)
-                val ftpConnectionId = parts.getOrNull(0)?.toIntOrNull()
-                val remoteSubPath = "/" + (parts.getOrNull(1) ?: "")
-                if (ftpConnectionId != null) {
-                    kotlinx.coroutines.runBlocking {
-                        try {
-                            val db = com.example.data.database.AppDatabase.getDatabase(context)
-                            val targetConn = db.ftpConnectionDao().getAllConnectionsOnce().firstOrNull { it.id == ftpConnectionId }
-                            if (targetConn != null) {
-                                com.example.data.repository.FtpClientManager.connect(targetConn)
-                                com.example.data.repository.FtpClientManager.downloadPartialFileToCache(
-                                    remotePath = remoteSubPath,
-                                    localFile = coverCacheFile,
-                                    maxBytes = 750 * 1024L
-                                )
-                            }
-                        } catch (e: Exception) {
-                            android.util.Log.e("RotatingCdPlayer", "Error loading FTP cover: ${e.message}")
-                        }
-                    }
-                }
-                if (coverCacheFile.exists() && coverCacheFile.length() > 0) {
-                    retriever.setDataSource(coverCacheFile.absolutePath)
+                val cachedFile = java.io.File(context.cacheDir, "current_playing_media.mp3")
+                if (cachedFile.exists() && cachedFile.length() > 0) {
+                    retriever.setDataSource(cachedFile.absolutePath)
                 } else {
-                    val cachedFile = java.io.File(context.cacheDir, "current_playing_media.mp3")
-                    if (cachedFile.exists() && cachedFile.length() > 0) {
-                        retriever.setDataSource(cachedFile.absolutePath)
-                    } else {
-                        return null
-                    }
+                    pathsWithNoCover.add(path)
+                    return null
                 }
             }
         } else {
@@ -6762,16 +17199,30 @@ fun getMp3Cover(context: android.content.Context, path: String): android.graphic
             if (f.exists() && f.canRead()) {
                 retriever.setDataSource(path)
             } else {
+                pathsWithNoCover.add(path)
                 return null
             }
         }
         val art = retriever.embeddedPicture
         if (art != null) {
-            android.graphics.BitmapFactory.decodeByteArray(art, 0, art.size)
+            val bmp = android.graphics.BitmapFactory.decodeByteArray(art, 0, art.size)
+            if (bmp != null) {
+                // Persistent optimization: save raw extracted bytes for instant future decoding (bypasses MediaMetadataRetriever)
+                try {
+                    coverCacheFile.writeBytes(art)
+                } catch (_: Exception) {}
+                coverImageMemoryCache.put(path, bmp)
+                bmp
+            } else {
+                pathsWithNoCover.add(path)
+                null
+            }
         } else {
+            pathsWithNoCover.add(path)
             null
         }
     } catch (e: Exception) {
+        pathsWithNoCover.add(path)
         null
     } finally {
         try {
@@ -6789,15 +17240,36 @@ fun TrackCoverImage(
     iconSize: androidx.compose.ui.unit.Dp = 24.dp
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    var coverBitmap by remember(filePath) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    
+    val isDirectImage = filePath != null && (
+        filePath.startsWith("http://") || 
+        filePath.startsWith("https://") || 
+        ((filePath.startsWith("content://") || filePath.startsWith("/")) && 
+         (filePath.endsWith(".jpg") || filePath.endsWith(".jpeg") || filePath.endsWith(".png") || filePath.endsWith(".webp") || (!filePath.endsWith(".mp3") && !filePath.endsWith(".wav") && !filePath.endsWith(".ogg"))))
+    )
+
+    var coverBitmap by remember(filePath) { 
+        mutableStateOf(if (filePath != null && !isDirectImage) coverImageMemoryCache.get(filePath) else null) 
+    }
     
     LaunchedEffect(filePath) {
-        if (filePath != null && (filePath.startsWith("/") || filePath.startsWith("content://") || filePath.startsWith("ftp://"))) {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                if (filePath.startsWith("ftp://")) {
-                    kotlinx.coroutines.delay(2000)
+        if (filePath != null && !isDirectImage && (filePath.startsWith("/") || filePath.startsWith("content://") || filePath.startsWith("ftp://"))) {
+            if (coverBitmap == null && !pathsWithNoCover.contains(filePath)) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val hash = filePath.hashCode()
+                    val lastDot = filePath.lastIndexOf('.')
+                    val ext = if (lastDot != -1) {
+                        val e = filePath.substring(lastDot + 1).lowercase()
+                        if (e in setOf("mp3", "wav", "m4a", "ogg", "flac", "aac")) e else "mp3"
+                    } else "mp3"
+                    val coverCacheFile = com.example.data.repository.AudioPlayerManager.getScannedCoverFile(context, hash, ext)
+                    val isCached = coverCacheFile.exists() && coverCacheFile.length() > 0
+                    
+                    if (filePath.startsWith("ftp://") && !isCached) {
+                        kotlinx.coroutines.delay(150)
+                    }
+                    coverBitmap = getMp3Cover(context, filePath)
                 }
-                coverBitmap = getMp3Cover(context, filePath)
             }
         } else {
             coverBitmap = null
@@ -6810,7 +17282,20 @@ fun TrackCoverImage(
             .clip(RoundedCornerShape(8.dp)),
         contentAlignment = Alignment.Center
     ) {
-        if (coverBitmap != null) {
+        if (isDirectImage) {
+            Icon(
+                imageVector = placeholderIcon,
+                contentDescription = null,
+                tint = CyberTeal,
+                modifier = Modifier.size(iconSize)
+            )
+            AsyncImage(
+                model = filePath,
+                contentDescription = "Logotipo",
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (coverBitmap != null) {
             androidx.compose.foundation.Image(
                 bitmap = coverBitmap!!.asImageBitmap(),
                 contentDescription = "Carátula del Álbum",
@@ -6832,18 +17317,32 @@ fun TrackCoverImage(
 fun RotatingCdPlayer(
     filePath: String?,
     isPlaying: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    logoUri: String? = null
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    var coverBitmap by remember(filePath) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var coverBitmap by remember(filePath) { 
+        mutableStateOf(if (filePath != null) coverImageMemoryCache.get(filePath) else null) 
+    }
     
     LaunchedEffect(filePath) {
         if (filePath != null && (filePath.startsWith("/") || filePath.startsWith("content://") || filePath.startsWith("ftp://"))) {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                if (filePath.startsWith("ftp://")) {
-                    kotlinx.coroutines.delay(1000)
+            if (coverBitmap == null && !pathsWithNoCover.contains(filePath)) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val hash = filePath.hashCode()
+                    val lastDot = filePath.lastIndexOf('.')
+                    val ext = if (lastDot != -1) {
+                        val e = filePath.substring(lastDot + 1).lowercase()
+                        if (e in setOf("mp3", "wav", "m4a", "ogg", "flac", "aac")) e else "mp3"
+                    } else "mp3"
+                    val coverCacheFile = com.example.data.repository.AudioPlayerManager.getScannedCoverFile(context, hash, ext)
+                    val isCached = coverCacheFile.exists() && coverCacheFile.length() > 0
+                    
+                    if (filePath.startsWith("ftp://") && !isCached) {
+                        kotlinx.coroutines.delay(600)
+                    }
+                    coverBitmap = getMp3Cover(context, filePath)
                 }
-                coverBitmap = getMp3Cover(context, filePath)
             }
         } else {
             coverBitmap = null
@@ -6871,7 +17370,7 @@ fun RotatingCdPlayer(
 
     Box(
         modifier = modifier
-            .size(220.dp)
+            .size(210.dp)
             .shadow(12.dp, CircleShape)
             .background(CyberSurface, CircleShape)
             .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape),
@@ -6888,6 +17387,13 @@ fun RotatingCdPlayer(
                 androidx.compose.foundation.Image(
                     bitmap = coverBitmap!!.asImageBitmap(),
                     contentDescription = "Carátula del CD",
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else if (!logoUri.isNullOrBlank()) {
+                coil.compose.AsyncImage(
+                    model = logoUri,
+                    contentDescription = "Logo Emisora",
                     contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -7011,5 +17517,189 @@ fun RotatingCdPlayer(
                 .border(2.dp, Color.Gray.copy(alpha = 0.5f), CircleShape)
         )
     }
+}
+
+@Composable
+fun LiveLogoIcon(
+    modifier: Modifier = Modifier,
+    innerCircleSize: androidx.compose.ui.unit.Dp = 56.dp,
+    strokeWidth: androidx.compose.ui.unit.Dp = 5.dp,
+    fontSize: androidx.compose.ui.unit.TextUnit = 11.sp,
+    playButtonSize: androidx.compose.ui.unit.Dp = 18.dp,
+    playIconSize: androidx.compose.ui.unit.Dp = 10.dp
+) {
+    Box(
+        modifier = modifier.size(innerCircleSize),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val strokeWidthPx = strokeWidth.toPx()
+            
+            // Draw a high-quality red ring with a gap at the bottom
+            drawArc(
+                color = Color.Red,
+                startAngle = 45f,
+                sweepAngle = 270f,
+                useCenter = false,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                    width = strokeWidthPx,
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round
+                )
+            )
+        }
+        
+        // Bold "LIVE" text in the center
+        Text(
+            text = "LIVE",
+            color = Color.Red,
+            fontSize = fontSize,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.5.sp
+        )
+        
+        // Small play button at the very bottom
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 1.dp)
+                .size(playButtonSize)
+                .background(Color.Red, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(playIconSize)
+            )
+        }
+    }
+}
+
+@Composable
+fun TimeshiftLogoIcon(
+    modifier: Modifier = Modifier,
+    size: androidx.compose.ui.unit.Dp = 56.dp,
+    strokeWidth: androidx.compose.ui.unit.Dp = 5.dp,
+    innerBarWidth: androidx.compose.ui.unit.Dp = 8.dp,
+    innerBarHeight: androidx.compose.ui.unit.Dp = 26.dp,
+    showText: Boolean = true,
+    fontSize: androidx.compose.ui.unit.TextUnit = 10.sp
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier.size(size),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val strokeWidthPx = strokeWidth.toPx()
+                
+                // Draw green upper arrow arc
+                drawArc(
+                    color = Color(0xFF76B900), // Vibrant Timeshift Green
+                    startAngle = 210f,
+                    sweepAngle = 140f,
+                    useCenter = false,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = strokeWidthPx,
+                        cap = androidx.compose.ui.graphics.StrokeCap.Round
+                    )
+                )
+                
+                // Draw cyber gray lower arrow arc
+                drawArc(
+                    color = Color.Black,
+                    startAngle = 30f,
+                    sweepAngle = 140f,
+                    useCenter = false,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = strokeWidthPx,
+                        cap = androidx.compose.ui.graphics.StrokeCap.Round
+                    )
+                )
+            }
+            
+            // Middle slanted green bar and text
+            Box(
+                modifier = Modifier
+                    .width(innerBarWidth)
+                    .height(innerBarHeight)
+                    .graphicsLayer(rotationZ = -15f)
+                    .background(Color(0xFF76B900), RoundedCornerShape(2.dp))
+            )
+        }
+        
+        if (showText) {
+            Spacer(modifier = Modifier.height(4.dp))
+            
+            Text(
+                text = "TIMESHIFT",
+                color = Color(0xFF76B900),
+                fontSize = fontSize,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.sp
+            )
+        }
+    }
+}
+
+@Composable
+fun Icon(
+    imageVector: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    tint: Color = androidx.compose.material3.LocalContentColor.current
+) {
+    val style = com.example.ui.theme.AppThemeManager.iconStyle
+    if (style == "neutral_none") {
+        androidx.compose.foundation.layout.Spacer(modifier = modifier.size(0.dp))
+        return
+    }
+    
+    val finalTint = when (style) {
+        "modern_color" -> CyberTeal
+        "neutral", "neutral_none" -> Color.Gray
+        "classic_color" -> tint
+        else -> tint // "retro_color" or default
+    }
+    
+    androidx.compose.material3.Icon(
+        imageVector = imageVector,
+        contentDescription = contentDescription,
+        modifier = modifier,
+        tint = finalTint
+    )
+}
+
+@Composable
+fun Icon(
+    painter: androidx.compose.ui.graphics.painter.Painter,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    tint: Color = androidx.compose.material3.LocalContentColor.current
+) {
+    val style = com.example.ui.theme.AppThemeManager.iconStyle
+    if (style == "neutral_none") {
+        androidx.compose.foundation.layout.Spacer(modifier = modifier.size(0.dp))
+        return
+    }
+    
+    val finalTint = when (style) {
+        "modern_color" -> CyberTeal
+        "neutral", "neutral_none" -> Color.Gray
+        "classic_color" -> tint
+        else -> tint // "retro_color" or default
+    }
+    
+    androidx.compose.material3.Icon(
+        painter = painter,
+        contentDescription = contentDescription,
+        modifier = modifier,
+        tint = finalTint
+    )
 }
 

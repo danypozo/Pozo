@@ -9,32 +9,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
-
-private val DarkColorScheme =
-  darkColorScheme(
-    primary = CyberTeal,
-    secondary = CyberGrey,
-    tertiary = WarningHotPink,
-    background = CyberDark,
-    surface = CyberSurface,
-    onPrimary = CyberDark,
-    onSecondary = CyberLight,
-    onBackground = CyberLight,
-    onSurface = CyberLight
-  )
-
-private val LightColorScheme =
-  darkColorScheme( // We default light scheme to our dark theme as well for media immersion!
-    primary = CyberTeal,
-    secondary = CyberGrey,
-    tertiary = WarningHotPink,
-    background = CyberDark,
-    surface = CyberSurface,
-    onPrimary = CyberDark,
-    onSecondary = CyberLight,
-    onBackground = CyberLight,
-    onSurface = CyberLight
-  )
+import androidx.compose.ui.graphics.Color
 
 @Composable
 fun MyApplicationTheme(
@@ -43,16 +18,34 @@ fun MyApplicationTheme(
   dynamicColor: Boolean = false,
   content: @Composable () -> Unit,
 ) {
-  val colorScheme =
-    when {
-      dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-        val context = LocalContext.current
-        if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-      }
+  // Read themeVersion to subscribe to theme change state updates
+  val version = AppThemeManager.themeVersion
+  val currentIsDark = AppThemeManager.isDark
+  val currentColorScheme = if (currentIsDark) {
+      darkColorScheme(
+          primary = CyberTeal,
+          secondary = CyberGrey,
+          tertiary = WarningHotPink,
+          background = CyberDark,
+          surface = CyberSurface,
+          onPrimary = CyberDark,
+          onSecondary = CyberLight,
+          onBackground = CyberLight,
+          onSurface = CyberLight
+      )
+  } else {
+      lightColorScheme(
+          primary = CyberTeal,
+          secondary = CyberGrey,
+          tertiary = WarningHotPink,
+          background = CyberDark,
+          surface = CyberSurface,
+          onPrimary = Color.White,
+          onSecondary = CyberLight,
+          onBackground = CyberLight,
+          onSurface = CyberLight
+      )
+  }
 
-      darkTheme -> DarkColorScheme
-      else -> LightColorScheme
-    }
-
-  MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
+  MaterialTheme(colorScheme = currentColorScheme, typography = Typography, content = content)
 }

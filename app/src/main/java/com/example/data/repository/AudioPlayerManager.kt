@@ -1312,6 +1312,7 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
     }
 
     fun stopRadioRecording() {
+        RadioLogger.log("stopRadioRecording - Deteniendo grabación de timeshift de radio y limpiando archivos temporales...")
         radioRecordingJob?.cancel()
         radioRecordingJob = null
         radioWatchdogJob?.cancel()
@@ -1359,8 +1360,9 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
     }
 
     private fun startRadioRecording(context: Context, url: String, keepExistingFile: Boolean = false) {
+        RadioLogger.log("startRadioRecording - Iniciando grabación de radio. URL: $url, conservarArchivoExistente: $keepExistingFile")
         if (keepExistingFile && radioRecordingJob != null && radioRecordingFile != null) {
-            Log.d(TAG, "startRadioRecording - Keep existing recording file and job.")
+            RadioLogger.log("startRadioRecording - Manteniendo archivo de grabación y job de recopilación actual.")
             return
         }
         if (!keepExistingFile) {
@@ -1398,10 +1400,10 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                         _radioSignalStability.value = nextStability
                         
                         if (freezeCount >= 5) {
-                            FtpClientManager.addLog("Watchdog: Bloqueo en el buffer FTP/Radio detectado (Bytes: $currentBytes)")
+                            RadioLogger.log("Watchdog: Alerta de congelamiento de buffer detectada (5 segundos sin recibir datos). Bytes recibidos: $currentBytes")
                             val forceResume = prefs.getBoolean("radio_force_resume_on_buffer_freeze", false)
                             if (forceResume) {
-                                FtpClientManager.addLog("Watchdog: Forzando reanudación automática de la transmisión radio...")
+                                RadioLogger.log("Watchdog: Forzando reanudación automática de la transmisión por congelamiento...")
                                 kotlinx.coroutines.withContext(Dispatchers.Main) {
                                     reconnectRadioStream(context, playImmediately = true)
                                 }
@@ -1478,11 +1480,12 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                         val read = try {
                             inputStream.read(buffer)
                         } catch (e: Exception) {
-                            Log.e(TAG, "Read error, attempting reconnect...: ${e.message}")
+                            RadioLogger.log("Grabación timeshift: Error al leer datos del streaming de radio: ${e.message}")
                             -2 // custom indicator for error read
                         }
 
                         if (read == -1 || read == -2) {
+                            RadioLogger.log("Grabación timeshift: Flujo finalizado o error detectado (read=$read). Intentando reconectar flujo...")
                             break // break inner loop to trigger reconnect/retry
                         }
 
@@ -1497,13 +1500,13 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
 
                             val dynamicLimitSecs = _radioBufferLimitMins.value * 60
                             if (elapsed >= dynamicLimitSecs) {
-                                Log.d(TAG, "Radio timeshift buffer limit reached (${_radioBufferLimitMins.value} min). Stopping further recording.")
+                                RadioLogger.log("Grabación timeshift: Se alcanzó el límite del buffer (${_radioBufferLimitMins.value} min). Deteniendo grabación.")
                                 return@launch
                             }
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Radio recording connection error: ${e.message}")
+                    RadioLogger.log("Grabación timeshift: Fallo en la conexión de grabación de streaming: ${e.message}")
                 } finally {
                     try { outputStream?.close() } catch(_: Exception) {}
                     try { inputStream?.close() } catch(_: Exception) {}
@@ -3146,10 +3149,14 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                             }
                         } else if (_isPlaying.value && !_isBuffering.value) {
                             // Inconsistency detected: state is playing but player is paused/stuck. Setting _isPlaying = false.
-                            _isPlaying.value = false
+                            if (!isRadio) {
+                                _isPlaying.value = false
+                            } else {
+                                RadioLogger.log("Corrección de inconsistencia bloqueada: El reproductor de radio retornó isPlaying=false temporalmente, pero se ignoró la pausa forzada por estar en radio/timeshift.")
+                            }
                         }
                     } catch (e: Exception) {
-                        if (_isPlaying.value && !_isBuffering.value) {
+                        if (_isPlaying.value && !_isBuffering.value && !isRadio) {
                             _isPlaying.value = false
                         }
                     }

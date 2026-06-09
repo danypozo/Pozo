@@ -3959,6 +3959,7 @@ private fun getSettingsItemPosition(id: Int): Pair<Int, Int> {
         3 -> Pair(1, 2)  // Memoria caché
         9 -> Pair(1, 3)  // Papelera
         4 -> Pair(1, 4)  // Permisos
+        11 -> Pair(1, 5) // Logs de Radio (nuevo)
         
         6 -> Pair(2, 0)  // Manual
         7 -> Pair(2, 1)  // Novedades
@@ -3981,6 +3982,7 @@ private fun getIdFromPosition(major: Int, sub: Int): Int {
             2 -> 3
             3 -> 9
             4 -> 4
+            5 -> 11
             else -> 2
         }
         2 -> when (sub) {
@@ -4068,6 +4070,11 @@ fun AppSettingsAndEqualizerScreen(viewModel: FtpViewModel, onNavigateToPlayer: (
                     selected = subTabIndex == 4,
                     onClick = { viewModel.setActiveSettingsTab(4) },
                     text = { Text("PERMISOS ☑️", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                )
+                Tab(
+                    selected = subTabIndex == 5,
+                    onClick = { viewModel.setActiveSettingsTab(11) },
+                    text = { Text("LOGS DE RADIO 📄", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
                 )
             } else {
                 Tab(
@@ -11588,6 +11595,194 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                         }
                     }
                 }
+                11 -> {
+                    // TAB 11: LOGS DE RADIO
+                    val loggingActive by com.example.data.repository.RadioLogger.isLoggingActive.collectAsStateWithLifecycle()
+                    val secsRemaining by com.example.data.repository.RadioLogger.secondsRemaining.collectAsStateWithLifecycle()
+                    var logFiles by remember { mutableStateOf(com.example.data.repository.RadioLogger.getLogFiles(context)) }
+                    var viewedLogContent by remember { mutableStateOf<String?>(null) }
+                    var viewedLogName by remember { mutableStateOf<String?>(null) }
+                    
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Depuración Activa (5 Minutos)", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                            if (loggingActive) {
+                                                val mins = secsRemaining / 60
+                                                val s = secsRemaining % 60
+                                                Text(
+                                                    text = "Grabando logs... Tiempo restante: ${String.format("%02d:%02d", mins, s)} 🕒",
+                                                    color = CyberTeal,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            } else {
+                                                Text("Graba e inspecciona eventos de timeshift en tiempo real y buffers.", color = Color.Gray, fontSize = 11.sp)
+                                            }
+                                        }
+                                        
+                                        Switch(
+                                            checked = loggingActive,
+                                            onCheckedChange = {
+                                                com.example.data.repository.RadioLogger.toggleLogging(context)
+                                                logFiles = com.example.data.repository.RadioLogger.getLogFiles(context)
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = CyberTeal,
+                                                checkedTrackColor = CyberTeal.copy(alpha = 0.5f)
+                                            )
+                                        )
+                                    }
+                                    
+                                    HorizontalDivider(color = CyberCharcoal)
+                                    
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Button(
+                                            onClick = {
+                                                com.example.data.repository.RadioLogger.clearLogs(context)
+                                                logFiles = com.example.data.repository.RadioLogger.getLogFiles(context)
+                                                Toast.makeText(context, "Todos los logs han sido vaciados.", Toast.LENGTH_SHORT).show()
+                                            },
+                                            enabled = logFiles.isNotEmpty(),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = WarningHotPink.copy(alpha = 0.2f),
+                                                contentColor = WarningHotPink,
+                                                disabledContainerColor = CyberCharcoal.copy(alpha = 0.3f),
+                                                disabledContentColor = Color.Gray
+                                            ),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("VACIAR TODOS LOS LOGS", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        item {
+                            Text("Archivos de Logs Guardados (${logFiles.size}):", color = CyberTeal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        
+                        if (logFiles.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(CyberSurface, RoundedCornerShape(12.dp))
+                                        .padding(24.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("No se han generado archivos de logs todavía. Activa la depuración de 5 minutos arriba para registrar actividad.", color = Color.Gray, fontSize = 11.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                }
+                            }
+                        } else {
+                            items(logFiles.size) { index ->
+                                val file = logFiles[index]
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onClick = {
+                                        try {
+                                            viewedLogContent = file.readText()
+                                            viewedLogName = file.name
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Error leyendo log: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                            Icon(Icons.Default.Description, contentDescription = null, tint = SoftTeal, modifier = Modifier.size(20.dp))
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column {
+                                                Text(file.name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                val kb = String.format("%.2f", file.length().toFloat() / 1024f)
+                                                Text("${kb} KB • Modificado: ${android.text.format.DateFormat.format("dd/MM/yyyy HH:mm:ss", file.lastModified())}", color = Color.Gray, fontSize = 10.sp)
+                                            }
+                                        }
+                                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Dialog to inspect a log file
+                    if (viewedLogContent != null && viewedLogName != null) {
+                        AlertDialog(
+                            onDismissRequest = {
+                                viewedLogContent = null
+                                viewedLogName = null
+                            },
+                            title = {
+                                Text(viewedLogName!!, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            },
+                            text = {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(350.dp)
+                                        .background(CyberCharcoal, RoundedCornerShape(8.dp))
+                                        .padding(8.dp)
+                                ) {
+                                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                        item {
+                                            Text(
+                                                text = viewedLogContent!!,
+                                                color = Color(0xFF81C784), // beautiful green console-like font color
+                                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                                fontSize = 11.sp,
+                                                lineHeight = 16.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        viewedLogContent = null
+                                        viewedLogName = null
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = Color.Black)
+                                ) {
+                                    Text("CERRAR", fontWeight = FontWeight.Bold)
+                                }
+                            },
+                            containerColor = CyberSurface
+                        )
+                    }
+                }
             }
         }
     }
@@ -16465,15 +16660,23 @@ fun DrawerControlPanelContent(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val loggingActive by com.example.data.repository.RadioLogger.isLoggingActive.collectAsStateWithLifecycle()
+                        val secsRemaining by com.example.data.repository.RadioLogger.secondsRemaining.collectAsStateWithLifecycle()
+                        
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("FTP Keep-Alive / Latidos", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
-                            Text("Evita desconexiones temporales por FTP enviando latidos periódicos", color = Color.Gray, fontSize = 9.sp)
+                            Text("Log de Depurar Radio", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                            if (loggingActive) {
+                                val mins = secsRemaining / 60
+                                val s = secsRemaining % 60
+                                Text("Registrando logs... (${String.format("%02d:%02d", mins, s)})", color = CyberTeal, fontSize = 9.sp)
+                            } else {
+                                Text("Registra eventos detallados de buffer durante 5 min", color = Color.Gray, fontSize = 9.sp)
+                            }
                         }
                         Switch(
-                            checked = ftpHeartbeatEnabled,
-                            onCheckedChange = { checked ->
-                                ftpHeartbeatEnabled = checked
-                                prefs.edit().putBoolean("ftp_heartbeat_enabled", checked).apply()
+                            checked = loggingActive,
+                            onCheckedChange = {
+                                com.example.data.repository.RadioLogger.toggleLogging(context)
                             },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = CyberDark,

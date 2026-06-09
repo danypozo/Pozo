@@ -14244,7 +14244,7 @@ fun PlayerTabSchema(viewModel: FtpViewModel, onNavigateToRecent: () -> Unit) {
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
-                                } else if (radioDownloadSpeedKbps <= 0f) {
+                                } else if (isRadioLive && radioDownloadSpeedKbps <= 0f) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Box(
                                             modifier = Modifier
@@ -14260,21 +14260,22 @@ fun PlayerTabSchema(viewModel: FtpViewModel, onNavigateToRecent: () -> Unit) {
                                         )
                                     }
                                 } else {
+                                    val statusLabel = if (!isRadioLive) "Reproduciendo Búfer" else "Conectado"
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Box(
                                             modifier = Modifier
                                                 .size(5.dp)
                                                 .background(CyberTeal, CircleShape)
-                                        )
-                                        Spacer(modifier = Modifier.width(3.dp))
-                                        Text(
-                                            "Conectado",
-                                            color = CyberTeal,
-                                            fontSize = 8.sp,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
-                                }
+                                         )
+                                         Spacer(modifier = Modifier.width(3.dp))
+                                         Text(
+                                             statusLabel,
+                                             color = CyberTeal,
+                                             fontSize = 8.sp,
+                                             fontWeight = FontWeight.Medium
+                                         )
+                                     }
+                                 }
                             }
                         }
                     }

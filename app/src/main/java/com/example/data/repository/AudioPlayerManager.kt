@@ -712,7 +712,7 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                 val playing = _isPlaying.value
                 val buffering = _isBuffering.value
                 
-                if (track != null && track.playlistId == -2 && !userPressedPause && !wasPlayingBeforeFocusLoss) {
+                if (track != null && track.playlistId == -2 && _isRadioLiveMode.value && !userPressedPause && !wasPlayingBeforeFocusLoss) {
                     var playerIsReallyPlaying = false
                     try {
                         playerIsReallyPlaying = mediaPlayer?.isPlaying == true
@@ -1531,7 +1531,7 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
         val clampedSec = positionSec.coerceIn(0, _radioElapsedTimeSec.value)
         _radioPlayPositionSec.value = clampedSec
 
-        if (clampedSec >= _radioElapsedTimeSec.value - 3) {
+        if (clampedSec >= _radioElapsedTimeSec.value - 12) {
             goLiveRadio()
         } else {
             playRadioTimeShiftAt(clampedSec * 1000L)
@@ -2584,7 +2584,7 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
             } else {
                 val currentPlayPosSec = _radioPlayPositionSec.value
                 val totalElapsedSec = _radioElapsedTimeSec.value
-                if (currentPlayPosSec < totalElapsedSec - 4) {
+                if (currentPlayPosSec < totalElapsedSec - 12) {
                     Log.i(TAG, "Timeshift player hit EOF of prepared size, but buffer has more content. Re-preparing timeshift player at $currentPlayPosSec sec...")
                     playRadioTimeShiftAt(currentPlayPosSec * 1000L)
                 } else {
@@ -3108,7 +3108,7 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                                     _radioPlayPositionSec.value = posSec
                                     
                                     // Catch up with live stream buffer automatically!
-                                    if (posSec >= _radioElapsedTimeSec.value - 2) {
+                                    if (posSec >= _radioElapsedTimeSec.value - 10) {
                                         Log.i(TAG, "Caught up with live stream buffer in Timeshift. Going LIVE...")
                                         goLiveRadio()
                                     }

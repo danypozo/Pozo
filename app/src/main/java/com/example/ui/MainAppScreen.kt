@@ -6139,10 +6139,17 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                     var m3uSourceMode by remember { mutableStateOf("url") } // "url" or "text"
                                     var m3uUrlInput by remember { mutableStateOf("https://www.tdtchannels.com/lists/radio.m3u8") }
                                     var m3uTextInput by remember { mutableStateOf("") }
+                                    var showImportPreviewDialog by remember { mutableStateOf(false) }
 
                                     val isImportLoading by viewModel.isImportLoading.collectAsStateWithLifecycle()
                                     val parsedImportChannels by viewModel.parsedImportChannels.collectAsStateWithLifecycle()
                                     val importMessage by viewModel.importMessage.collectAsStateWithLifecycle()
+
+                                    androidx.compose.runtime.LaunchedEffect(parsedImportChannels) {
+                                        if (parsedImportChannels.isNotEmpty()) {
+                                            showImportPreviewDialog = true
+                                        }
+                                    }
 
                                     Text("Carga radios masivamente ingresando la URL de un listado online M3U/M3U8 o pegando texto estructurado.", fontSize = 10.sp, color = Color.Gray)
                                     Spacer(modifier = Modifier.height(6.dp))
@@ -6260,125 +6267,321 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                     }
 
                                     if (parsedImportChannels.isNotEmpty()) {
-                                        var searchQuery by remember { mutableStateOf("") }
-                                        val filteredChannels = remember(searchQuery, parsedImportChannels) {
-                                            parsedImportChannels.filter { it.name.contains(searchQuery, ignoreCase = true) }
-                                        }
-
-                                        OutlinedTextField(
-                                            value = searchQuery,
-                                            onValueChange = { searchQuery = it },
-                                            placeholder = { Text("Filtrar canales por nombre...", fontSize = 11.sp, color = Color.LightGray) },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            colors = OutlinedTextFieldDefaults.colors(
-                                                focusedBorderColor = CyberTeal,
-                                                unfocusedBorderColor = CyberCharcoal,
-                                                focusedTextColor = Color.White,
-                                                unfocusedTextColor = Color.White
-                                            )
-                                        )
-
                                         val selectedToImport = remember(parsedImportChannels) { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
-                                        
+                                        val numSelected = selectedToImport.filter { it.value }.size
+
                                         Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
+                                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            Text("Canales: ${filteredChannels.size} (Sel: ${selectedToImport.filter { it.value }.size})", fontSize = 11.sp, color = Color.LightGray)
-                                            
-                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                Text(
-                                                    "Marcar Todos",
-                                                    color = CyberTeal,
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.clickable {
-                                                        filteredChannels.forEach { selectedToImport[it.url] = true }
-                                                    }
-                                                )
-                                                Text(
-                                                    "Desmarcar Todos",
-                                                    color = WarningHotPink,
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.clickable {
-                                                        selectedToImport.clear()
-                                                    }
-                                                )
-                                            }
-                                        }
-
-                                        androidx.compose.foundation.lazy.LazyColumn(
-                                            modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp)
-                                                .background(CyberCharcoal.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                                                .border(0.5.dp, CyberCharcoal, RoundedCornerShape(8.dp))
-                                                .padding(6.dp),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            items(filteredChannels.size) { index ->
-                                                val item = filteredChannels[index]
-                                                val isChecked = selectedToImport[item.url] == true
-                                                
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .background(if (isChecked) CyberTeal.copy(alpha = 0.1f) else Color.Transparent, RoundedCornerShape(4.dp))
-                                                        .clickable {
-                                                            selectedToImport[item.url] = !isChecked
-                                                        }
-                                                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Checkbox(
-                                                        checked = isChecked,
-                                                        onCheckedChange = { selectedToImport[item.url] = it == true },
-                                                        colors = CheckboxDefaults.colors(
-                                                            checkedColor = CyberTeal,
-                                                            uncheckedColor = Color.Gray,
-                                                            checkmarkColor = CyberDark
-                                                        )
-                                                    )
-                                                    
-                                                    if (!item.logoUri.isNullOrBlank()) {
-                                                        AsyncImage(
-                                                            model = item.logoUri,
-                                                            contentDescription = "Logo",
-                                                            modifier = Modifier
-                                                                .size(24.dp)
-                                                                .clip(RoundedCornerShape(4.dp))
-                                                                .background(Color.DarkGray)
-                                                                .padding(2.dp),
-                                                            contentScale = ContentScale.Crop
-                                                        )
-                                                        Spacer(modifier = Modifier.width(6.dp))
-                                                    }
-                                                    
-                                                    Column(modifier = Modifier.weight(1f)) {
-                                                        Text(item.name, fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1)
-                                                        Text(item.url, fontSize = 9.sp, color = Color.Gray, maxLines = 1)
-                                                    }
+                                            Button(
+                                                onClick = { showImportPreviewDialog = true },
+                                                colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark),
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.weight(1.2f)
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                                                    Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("Ver Canales (${parsedImportChannels.size})", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                                 }
                                             }
-                                        }
 
-                                        Button(
-                                            onClick = {
-                                                val selectedList = filteredChannels.filter { selectedToImport[it.url] == true }
-                                                if (selectedList.isNotEmpty()) {
-                                                    viewModel.importSelectedRadios(selectedList)
-                                                    Toast.makeText(context, "Sintonizadas ${selectedList.size} emisoras correctamente 📻", Toast.LENGTH_LONG).show()
+                                            Button(
+                                                onClick = {
                                                     viewModel.clearImportState()
-                                                } else {
-                                                    Toast.makeText(context, "Por favor, selecciona al menos 1 emisora", Toast.LENGTH_SHORT).show()
-                                                }
-                                            },
-                                            colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark),
-                                            shape = RoundedCornerShape(8.dp),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Text("Importar Seleccionadas (${selectedToImport.filter { it.value }.size})", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    selectedToImport.clear()
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal, contentColor = Color.LightGray),
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.weight(0.8f)
+                                            ) {
+                                                Text("Limpiar", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                            }
                                         }
+
+                                        if (showImportPreviewDialog) {
+                                            val currentTrack by AudioPlayerManager.currentTrack.collectAsStateWithLifecycle()
+                                            val isPlaying by AudioPlayerManager.isPlaying.collectAsStateWithLifecycle()
+
+                                             androidx.compose.ui.window.Dialog(
+                                                 onDismissRequest = { showImportPreviewDialog = false }
+                                             ) {
+                                                 Card(
+                                                     colors = CardDefaults.cardColors(containerColor = CyberDark),
+                                                     border = BorderStroke(1.5.dp, CyberTeal),
+                                                     shape = RoundedCornerShape(16.dp),
+                                                     modifier = Modifier
+                                                         .fillMaxWidth(0.98f)
+                                                         .fillMaxHeight(0.88f)
+                                                 ) {
+                                                     Column(
+                                                         modifier = Modifier
+                                                             .fillMaxSize()
+                                                             .padding(14.dp)
+                                                     ) {
+                                                         // Header
+                                                         Row(
+                                                             modifier = Modifier.fillMaxWidth(),
+                                                             horizontalArrangement = Arrangement.SpaceBetween,
+                                                             verticalAlignment = Alignment.CenterVertically
+                                                         ) {
+                                                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.Radio,
+                                                                    contentDescription = null,
+                                                                    tint = CyberTeal,
+                                                                    modifier = Modifier.size(20.dp)
+                                                                )
+                                                                Spacer(modifier = Modifier.width(8.dp))
+                                                                Text(
+                                                                    text = "EMISORAS M3U IMPORTADAS",
+                                                                    color = Color.White,
+                                                                    fontSize = 13.sp,
+                                                                    fontWeight = FontWeight.Bold
+                                                                )
+                                                             }
+                                                             IconButton(
+                                                                 onClick = { showImportPreviewDialog = false },
+                                                                 modifier = Modifier.size(28.dp)
+                                                             ) {
+                                                                 Icon(
+                                                                     imageVector = Icons.Default.Close,
+                                                                     contentDescription = "Cerrar",
+                                                                     tint = Color.Gray,
+                                                                     modifier = Modifier.size(18.dp)
+                                                                 )
+                                                             }
+                                                         }
+
+                                                         Spacer(modifier = Modifier.height(6.dp))
+                                                         Text(
+                                                             text = "Previsualiza canales cargados. Reproduce para comprobar el streaming y sintoniza los que desees guardar.",
+                                                             color = Color.Gray,
+                                                             fontSize = 10.sp
+                                                         )
+
+                                                         Spacer(modifier = Modifier.height(10.dp))
+
+                                                         // Search/Filter in prompt dialog
+                                                         var searchQuery by remember { mutableStateOf("") }
+                                                         val filteredChannels = remember(searchQuery, parsedImportChannels) {
+                                                             parsedImportChannels.filter { it.name.contains(searchQuery, ignoreCase = true) }
+                                                         }
+
+                                                         OutlinedTextField(
+                                                             value = searchQuery,
+                                                             onValueChange = { searchQuery = it },
+                                                             placeholder = { Text("Filtrar por nombre...", fontSize = 11.sp, color = Color.Gray) },
+                                                             leadingIcon = {
+                                                                 Icon(
+                                                                     imageVector = Icons.Default.Search,
+                                                                     contentDescription = null,
+                                                                     tint = CyberTeal,
+                                                                     modifier = Modifier.size(14.dp)
+                                                                 )
+                                                             },
+                                                             modifier = Modifier.fillMaxWidth(),
+                                                             colors = OutlinedTextFieldDefaults.colors(
+                                                                 focusedBorderColor = CyberTeal,
+                                                                 unfocusedBorderColor = CyberCharcoal,
+                                                                 focusedTextColor = Color.White,
+                                                                 unfocusedTextColor = Color.White,
+                                                                 focusedContainerColor = CyberCharcoal.copy(alpha = 0.2f),
+                                                                 unfocusedContainerColor = CyberCharcoal.copy(alpha = 0.2f)
+                                                             ),
+                                                             shape = RoundedCornerShape(8.dp),
+                                                             singleLine = true
+                                                         )
+
+                                                         Spacer(modifier = Modifier.height(10.dp))
+
+                                                         // Status and Select Toggles
+                                                         Row(
+                                                             modifier = Modifier.fillMaxWidth(),
+                                                             horizontalArrangement = Arrangement.SpaceBetween,
+                                                             verticalAlignment = Alignment.CenterVertically
+                                                         ) {
+                                                             Text(
+                                                                 text = "Encontrados: ${filteredChannels.size} (Sel: ${selectedToImport.filter { it.value }.size})",
+                                                                 fontSize = 11.sp,
+                                                                 color = Color.LightGray
+                                                             )
+
+                                                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                                 Text(
+                                                                     text = "Marcar Todos",
+                                                                     color = CyberTeal,
+                                                                     fontSize = 10.sp,
+                                                                     fontWeight = FontWeight.Bold,
+                                                                     modifier = Modifier.clickable {
+                                                                         filteredChannels.forEach { selectedToImport[it.url] = true }
+                                                                     }
+                                                                 )
+                                                                 Text(
+                                                                     text = "Desmarcar Todos",
+                                                                     color = WarningHotPink,
+                                                                     fontSize = 10.sp,
+                                                                     fontWeight = FontWeight.Bold,
+                                                                     modifier = Modifier.clickable {
+                                                                         selectedToImport.clear()
+                                                                     }
+                                                                 )
+                                                             }
+                                                         }
+
+                                                         Spacer(modifier = Modifier.height(6.dp))
+
+                                                         // List scrollable
+                                                         androidx.compose.foundation.lazy.LazyColumn(
+                                                             modifier = Modifier
+                                                                 .weight(1f)
+                                                                 .fillMaxWidth()
+                                                                 .background(CyberCharcoal.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                                                                 .border(0.5.dp, CyberCharcoal, RoundedCornerShape(8.dp))
+                                                                 .padding(4.dp),
+                                                             verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                         ) {
+                                                             items(filteredChannels.size) { index ->
+                                                                 val item = filteredChannels[index]
+                                                                 val isChecked = selectedToImport[item.url] == true
+                                                                 val isLivePlaying = currentTrack?.filePath == item.url && isPlaying
+
+                                                                 Row(
+                                                                     modifier = Modifier
+                                                                         .fillMaxWidth()
+                                                                         .background(
+                                                                             if (isLivePlaying) CyberTeal.copy(alpha = 0.15f)
+                                                                             else if (isChecked) CyberCharcoal.copy(alpha = 0.4f)
+                                                                             else Color.Transparent,
+                                                                             RoundedCornerShape(6.dp)
+                                                                         )
+                                                                         .clickable {
+                                                                             selectedToImport[item.url] = !isChecked
+                                                                         }
+                                                                         .padding(end = 4.dp),
+                                                                     verticalAlignment = Alignment.CenterVertically
+                                                                 ) {
+                                                                     Checkbox(
+                                                                         checked = isChecked,
+                                                                         onCheckedChange = { selectedToImport[item.url] = it == true },
+                                                                         colors = CheckboxDefaults.colors(
+                                                                             checkedColor = CyberTeal,
+                                                                             uncheckedColor = Color.Gray,
+                                                                             checkmarkColor = CyberDark
+                                                                         )
+                                                                     )
+
+                                                                     if (!item.logoUri.isNullOrBlank()) {
+                                                                         AsyncImage(
+                                                                             model = item.logoUri,
+                                                                             contentDescription = "Logo",
+                                                                             modifier = Modifier
+                                                                                 .size(26.dp)
+                                                                                 .clip(RoundedCornerShape(4.dp))
+                                                                                 .background(Color.DarkGray)
+                                                                                 .padding(1.dp),
+                                                                             contentScale = ContentScale.Crop
+                                                                         )
+                                                                         Spacer(modifier = Modifier.width(6.dp))
+                                                                     } else {
+                                                                         Icon(
+                                                                             imageVector = Icons.Default.Radio,
+                                                                             contentDescription = null,
+                                                                             tint = if (isLivePlaying) CyberTeal else Color.Gray,
+                                                                             modifier = Modifier
+                                                                                 .size(26.dp)
+                                                                                 .background(CyberCharcoal, RoundedCornerShape(4.dp))
+                                                                                 .padding(3.dp)
+                                                                         )
+                                                                         Spacer(modifier = Modifier.width(6.dp))
+                                                                     }
+
+                                                                     Column(modifier = Modifier.weight(1f)) {
+                                                                         Text(
+                                                                             text = item.name,
+                                                                             fontSize = 11.sp,
+                                                                             color = if (isLivePlaying) CyberTeal else Color.White,
+                                                                             fontWeight = FontWeight.Bold,
+                                                                             maxLines = 1
+                                                                         )
+                                                                         Text(
+                                                                             text = item.url,
+                                                                             fontSize = 8.sp,
+                                                                             color = Color.Gray,
+                                                                             maxLines = 1
+                                                                         )
+                                                                     }
+
+                                                                     // Live streaming preview test trigger button!
+                                                                     IconButton(
+                                                                         onClick = {
+                                                                             if (isLivePlaying) {
+                                                                                 AudioPlayerManager.togglePlayPause(context)
+                                                                             } else {
+                                                                                 Toast.makeText(context, "Reproduciendo: ${item.name}", Toast.LENGTH_SHORT).show()
+                                                                                 val playlistItem = PlaylistItem(
+                                                                                     id = 0,
+                                                                                     playlistId = -2,
+                                                                                     fileName = item.name,
+                                                                                     filePath = item.url,
+                                                                                     fileSize = 0L
+                                                                                 )
+                                                                                 AudioPlayerManager.playTrack(context, playlistItem)
+                                                                             }
+                                                                         },
+                                                                         modifier = Modifier.size(32.dp)
+                                                                     ) {
+                                                                         Icon(
+                                                                             imageVector = if (isLivePlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                                                             contentDescription = "Previsualizar radio",
+                                                                             tint = if (isLivePlaying) Color(0xFF2ECC71) else CyberTeal,
+                                                                             modifier = Modifier.size(20.dp)
+                                                                         )
+                                                                     }
+                                                                 }
+                                                             }
+                                                         }
+
+                                                         Spacer(modifier = Modifier.height(10.dp))
+
+                                                         // Footer
+                                                         Row(
+                                                             modifier = Modifier.fillMaxWidth(),
+                                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                         ) {
+                                                             Button(
+                                                                 onClick = { showImportPreviewDialog = false },
+                                                                 colors = ButtonDefaults.buttonColors(containerColor = CyberCharcoal, contentColor = Color.White),
+                                                                 shape = RoundedCornerShape(8.dp),
+                                                                 modifier = Modifier.weight(1f)
+                                                             ) {
+                                                                 Text("CERRAR", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                             }
+
+                                                             Button(
+                                                                 onClick = {
+                                                                     val selectedList = filteredChannels.filter { selectedToImport[it.url] == true }
+                                                                     if (selectedList.isNotEmpty()) {
+                                                                         viewModel.importSelectedRadios(selectedList)
+                                                                         Toast.makeText(context, "Sintonizadas ${selectedList.size} emisoras correctamente 📻", Toast.LENGTH_LONG).show()
+                                                                         showImportPreviewDialog = false
+                                                                         viewModel.clearImportState()
+                                                                     } else {
+                                                                         Toast.makeText(context, "Por favor, selecciona al menos 1 emisora", Toast.LENGTH_SHORT).show()
+                                                                     }
+                                                                 },
+                                                                 colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = CyberDark),
+                                                                 shape = RoundedCornerShape(8.dp),
+                                                                 modifier = Modifier.weight(1.3f)
+                                                             ) {
+                                                                 Text("IMPORTAR (${selectedToImport.filter { it.value }.size})", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                             }
+                                                         }
+                                                     }
+                                                 }
+                                             }
+                                         }
                                     }
                                 }
                             }
@@ -7470,54 +7673,7 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                                     Toast.makeText(context, "Carga Ultra Rápida activa ⚡", Toast.LENGTH_SHORT).show()
                                                 } else {
                                                      Toast.makeText(context, "Carga normal activa (descarga completa)", Toast.LENGTH_SHORT).show()
-                                                }
-                                            },
-                                            colors = SwitchDefaults.colors(
-                                                checkedThumbColor = CyberDark,
-                                                checkedTrackColor = CyberTeal,
-                                                uncheckedThumbColor = Color.Gray,
-                                                uncheckedTrackColor = CyberCharcoal
-                                            )
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.height(12.dp))
-
-                                    // Option: Requerir dos pulsaciones para pausar
-                                    var twoTapsToPauseSetting by remember {
-                                        mutableStateOf(prefs.getBoolean("two_taps_to_pause_enabled", false))
-                                    }
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(CyberCharcoal, RoundedCornerShape(8.dp))
-                                            .padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                            Text(
-                                                "Doble Pulsación para Pausa ⏸️",
-                                                color = Color.White,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                "Si está activo, se requerirá presionar el botón de pausar dos veces en menos de un segundo para pausar la reproducción.",
-                                                color = Color.Gray,
-                                                fontSize = 10.sp
-                                            )
-                                        }
-                                        Switch(
-                                            checked = twoTapsToPauseSetting,
-                                            onCheckedChange = { checked ->
-                                                twoTapsToPauseSetting = checked
-                                                prefs.edit().putBoolean("two_taps_to_pause_enabled", checked).apply()
-                                                if (checked) {
-                                                    Toast.makeText(context, "Modo doble pulsación para pausa habilitado ⏸️", Toast.LENGTH_SHORT).show()
-                                                } else {
-                                                    Toast.makeText(context, "Modo doble pulsación deshabilitado", Toast.LENGTH_SHORT).show()
-                                                }
+                                                                }
                                             },
                                             colors = SwitchDefaults.colors(
                                                 checkedThumbColor = CyberDark,
@@ -16967,7 +17123,7 @@ fun DrawerControlPanelContent(
         var drawerFtpTimeoutMins by remember { mutableStateOf(drawerPrefs.getInt("ftp_timeout_minutes", 0)) }
         var isFtpTimeoutMenuExpanded by remember(drawerState.isOpen) { mutableStateOf(false) }
         val ftpTimeoutRemainingSec by viewModel.ftpTimeoutRemainingSec.collectAsStateWithLifecycle()
-        val ftpTimeoutActive = drawerFtpTimeoutMins > 0 && ftpTimeoutRemainingSec > 0
+        val ftpTimeoutActive = drawerFtpTimeoutMins > 0
 
         Card(
             colors = CardDefaults.cardColors(
@@ -17009,18 +17165,26 @@ fun DrawerControlPanelContent(
                                 fontSize = 13.sp
                             )
                             if (ftpTimeoutActive) {
-                                val minutesLeft = ftpTimeoutRemainingSec / 60
-                                val secondsLeft = ftpTimeoutRemainingSec % 60
-                                Text(
-                                    text = "Desconexión en: ${String.format("%02d:%02d", minutesLeft, secondsLeft)}",
-                                    color = Color(0xFF2ECC71),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                if (ftpTimeoutRemainingSec > 0) {
+                                    val minutesLeft = ftpTimeoutRemainingSec / 60
+                                    val secondsLeft = ftpTimeoutRemainingSec % 60
+                                    Text(
+                                        text = "Desconexión en: ${String.format("%02d:%02d", minutesLeft, secondsLeft)}",
+                                        color = Color(0xFF2ECC71),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                } else {
+                                    Text(
+                                        text = "Desconectar tras $drawerFtpTimeoutMins minutos (Pausa)",
+                                        color = Color(0xFF2ECC71),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             } else {
-                                val statusLabel = if (drawerFtpTimeoutMins == 0) "Desactivado (Nunca)" else "Desconectar tras $drawerFtpTimeoutMins minutos (Pausa)"
                                 Text(
-                                    text = statusLabel,
+                                    text = "Desactivado (Nunca)",
                                     color = Color.Gray,
                                     fontSize = 10.sp
                                 )
@@ -17052,7 +17216,7 @@ fun DrawerControlPanelContent(
                                     onClick = {
                                         drawerFtpTimeoutMins = 0
                                         drawerPrefs.edit().putInt("ftp_timeout_minutes", 0).apply()
-                                        Toast.makeText(context, "Autodesconexión FTP deactivada", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Autodesconexión FTP desactivada", Toast.LENGTH_SHORT).show()
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = WarningHotPink.copy(alpha = 0.2f), contentColor = WarningHotPink),
                                     shape = RoundedCornerShape(6.dp),
@@ -17066,7 +17230,7 @@ fun DrawerControlPanelContent(
 
                         if (ftpTimeoutActive) {
                             val ftpOriginalSec = drawerFtpTimeoutMins * 60f
-                            val ftpProgressFraction = ftpTimeoutRemainingSec.toFloat() / ftpOriginalSec
+                            val ftpProgressFraction = if (ftpTimeoutRemainingSec > 0) ftpTimeoutRemainingSec.toFloat() / ftpOriginalSec else 1f
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,

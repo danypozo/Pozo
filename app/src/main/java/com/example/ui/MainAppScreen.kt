@@ -5437,22 +5437,13 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
     var ftpTimeoutMins by remember { mutableStateOf(prefs.getInt("ftp_timeout_minutes", 0)) }
     var recordingPath by remember { mutableStateOf(prefs.getString("recording_destination_dir", "") ?: "") }
     var durationFormatMode by remember { mutableStateOf(prefs.getString("duration_format_mode", "minutes_seconds") ?: "minutes_seconds") }
-    var autoReconnectLive by remember { mutableStateOf(prefs.getBoolean("radio_auto_reconnect_live", false)) }
-    var reconnectPausedEnabled by remember { mutableStateOf(prefs.getBoolean("radio_reconnect_paused_enabled", false)) }
-    var twoTapsToPauseSetting by remember { mutableStateOf(prefs.getBoolean("two_taps_to_pause_enabled", false)) }
     var ftpHeartbeatEnabled by remember { mutableStateOf(prefs.getBoolean("ftp_heartbeat_enabled", false)) }
     var radioForceResumeOnBufferFreeze by remember { mutableStateOf(prefs.getBoolean("radio_force_resume_on_buffer_freeze", false)) }
     var autoPlayOnStartup by remember { mutableStateOf(prefs.getBoolean("auto_play_on_startup", false)) }
 
     androidx.compose.runtime.DisposableEffect(context) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == "radio_auto_reconnect_live") {
-                autoReconnectLive = prefs.getBoolean("radio_auto_reconnect_live", false)
-            } else if (key == "radio_reconnect_paused_enabled") {
-                reconnectPausedEnabled = prefs.getBoolean("radio_reconnect_paused_enabled", false)
-            } else if (key == "two_taps_to_pause_enabled") {
-                twoTapsToPauseSetting = prefs.getBoolean("two_taps_to_pause_enabled", false)
-            } else if (key == "ftp_heartbeat_enabled") {
+            if (key == "ftp_heartbeat_enabled") {
                 ftpHeartbeatEnabled = prefs.getBoolean("ftp_heartbeat_enabled", false)
             } else if (key == "radio_force_resume_on_buffer_freeze") {
                 radioForceResumeOnBufferFreeze = prefs.getBoolean("radio_force_resume_on_buffer_freeze", false)
@@ -6730,134 +6721,7 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                             }
                         }
 
-                        // Section: Configuración de Reconexión de radio
-                        item {
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
-                            ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Refresh,
-                                            contentDescription = null,
-                                            tint = CyberTeal,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "Reconexión de Radio Online",
-                                            color = Color.White,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = "Configura el comportamiento automático del reproductor de radio cuando sufra un corte de red inesperado:",
-                                        color = Color.Gray,
-                                        fontSize = 10.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(14.dp))
 
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text("Auto-reconectar en Vivo", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
-                                            Text("Sintoniza el directo de inmediato tras un corte", color = Color.Gray, fontSize = 9.sp)
-                                        }
-                                        Switch(
-                                            checked = autoReconnectLive,
-                                            onCheckedChange = { checked ->
-                                                autoReconnectLive = checked
-                                                if (checked) {
-                                                    reconnectPausedEnabled = false
-                                                    prefs.edit()
-                                                        .putBoolean("radio_auto_reconnect_live", true)
-                                                        .putBoolean("radio_reconnect_paused_enabled", false)
-                                                        .apply()
-                                                } else {
-                                                    prefs.edit().putBoolean("radio_auto_reconnect_live", false).apply()
-                                                }
-                                            },
-                                            colors = SwitchDefaults.colors(
-                                                checkedThumbColor = CyberDark,
-                                                checkedTrackColor = CyberTeal,
-                                                uncheckedThumbColor = Color.Gray,
-                                                uncheckedTrackColor = CyberCharcoal
-                                            )
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.height(12.dp))
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text("Reanudar en Pausa", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
-                                            Text("Aísla el buffer y prepara la radio pausada tras un corte", color = Color.Gray, fontSize = 9.sp)
-                                        }
-                                        Switch(
-                                            checked = reconnectPausedEnabled,
-                                            onCheckedChange = { checked ->
-                                                reconnectPausedEnabled = checked
-                                                if (checked) {
-                                                    autoReconnectLive = false
-                                                    prefs.edit()
-                                                        .putBoolean("radio_reconnect_paused_enabled", true)
-                                                        .putBoolean("radio_auto_reconnect_live", false)
-                                                        .apply()
-                                                } else {
-                                                    prefs.edit().putBoolean("radio_reconnect_paused_enabled", false).apply()
-                                                }
-                                            },
-                                            colors = SwitchDefaults.colors(
-                                                checkedThumbColor = CyberDark,
-                                                checkedTrackColor = CyberTeal,
-                                                uncheckedThumbColor = Color.Gray,
-                                                uncheckedTrackColor = CyberCharcoal
-                                            )
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.height(12.dp))
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text("Pausa de Radio a Doble Toque", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
-                                            Text("Evita pausas accidentales requiriendo dos pulsaciones", color = Color.Gray, fontSize = 9.sp)
-                                        }
-                                        Switch(
-                                            checked = twoTapsToPauseSetting,
-                                            onCheckedChange = { checked ->
-                                                twoTapsToPauseSetting = checked
-                                                prefs.edit().putBoolean("two_taps_to_pause_enabled", checked).apply()
-                                            },
-                                            colors = SwitchDefaults.colors(
-                                                checkedThumbColor = CyberDark,
-                                                checkedTrackColor = CyberTeal,
-                                                uncheckedThumbColor = Color.Gray,
-                                                uncheckedTrackColor = CyberCharcoal
-                                            )
-                                        )
-                                    }
-                                }
-                            }
-                        }
 
                         // FTP Log Console Card inside Settings
                         item {
@@ -16242,9 +16106,6 @@ fun DrawerControlPanelContent(
     val prefs = remember { context.getSharedPreferences("ftp_hub_settings", android.content.Context.MODE_PRIVATE) }
     val queueList by AudioPlayerManager.playlistQueue.collectAsStateWithLifecycle()
     var showLastTrackIndicator by remember { mutableStateOf(prefs.getBoolean("show_last_track_indicator", true)) }
-    var autoReconnectLive by remember { mutableStateOf(prefs.getBoolean("radio_auto_reconnect_live", false)) }
-    var reconnectPausedEnabled by remember { mutableStateOf(prefs.getBoolean("radio_reconnect_paused_enabled", false)) }
-    var twoTapsToPauseSetting by remember { mutableStateOf(prefs.getBoolean("two_taps_to_pause_enabled", false)) }
     var ftpHeartbeatEnabled by remember { mutableStateOf(prefs.getBoolean("ftp_heartbeat_enabled", false)) }
     var radioForceResumeOnBufferFreeze by remember { mutableStateOf(prefs.getBoolean("radio_force_resume_on_buffer_freeze", false)) }
     var autoPlayOnStartup by remember { mutableStateOf(prefs.getBoolean("auto_play_on_startup", false)) }
@@ -16254,12 +16115,6 @@ fun DrawerControlPanelContent(
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == "show_last_track_indicator") {
                 showLastTrackIndicator = prefs.getBoolean("show_last_track_indicator", true)
-            } else if (key == "radio_auto_reconnect_live") {
-                autoReconnectLive = prefs.getBoolean("radio_auto_reconnect_live", false)
-            } else if (key == "radio_reconnect_paused_enabled") {
-                reconnectPausedEnabled = prefs.getBoolean("radio_reconnect_paused_enabled", false)
-            } else if (key == "two_taps_to_pause_enabled") {
-                twoTapsToPauseSetting = prefs.getBoolean("two_taps_to_pause_enabled", false)
             } else if (key == "ftp_heartbeat_enabled") {
                 ftpHeartbeatEnabled = prefs.getBoolean("ftp_heartbeat_enabled", false)
             } else if (key == "radio_force_resume_on_buffer_freeze") {
@@ -16659,100 +16514,6 @@ fun DrawerControlPanelContent(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Auto-reconectar en Vivo", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
-                            Text("Sintoniza el directo de inmediato tras un corte", color = Color.Gray, fontSize = 9.sp)
-                        }
-                        Switch(
-                            checked = autoReconnectLive,
-                            onCheckedChange = { checked ->
-                                autoReconnectLive = checked
-                                if (checked) {
-                                    reconnectPausedEnabled = false
-                                    prefs.edit()
-                                        .putBoolean("radio_auto_reconnect_live", true)
-                                        .putBoolean("radio_reconnect_paused_enabled", false)
-                                        .apply()
-                                } else {
-                                    prefs.edit().putBoolean("radio_auto_reconnect_live", false).apply()
-                                }
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = CyberDark,
-                                checkedTrackColor = CyberTeal,
-                                uncheckedThumbColor = Color.Gray,
-                                uncheckedTrackColor = CyberCharcoal
-                            )
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Reanudar en Pausa", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
-                            Text("Aísla el buffer y prepara la radio pausada tras un corte", color = Color.Gray, fontSize = 9.sp)
-                        }
-                        Switch(
-                            checked = reconnectPausedEnabled,
-                            onCheckedChange = { checked ->
-                                reconnectPausedEnabled = checked
-                                if (checked) {
-                                    autoReconnectLive = false
-                                    prefs.edit()
-                                        .putBoolean("radio_reconnect_paused_enabled", true)
-                                        .putBoolean("radio_auto_reconnect_live", false)
-                                        .apply()
-                                } else {
-                                    prefs.edit().putBoolean("radio_reconnect_paused_enabled", false).apply()
-                                }
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = CyberDark,
-                                checkedTrackColor = CyberTeal,
-                                uncheckedThumbColor = Color.Gray,
-                                uncheckedTrackColor = CyberCharcoal
-                            )
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Pausa de Radio a Doble Toque", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
-                            Text("Evita pausas accidentales requiriendo dos pulsaciones", color = Color.Gray, fontSize = 9.sp)
-                        }
-                        Switch(
-                            checked = twoTapsToPauseSetting,
-                            onCheckedChange = { checked ->
-                                twoTapsToPauseSetting = checked
-                                prefs.edit().putBoolean("two_taps_to_pause_enabled", checked).apply()
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = CyberDark,
-                                checkedTrackColor = CyberTeal,
-                                uncheckedThumbColor = Color.Gray,
-                                uncheckedTrackColor = CyberCharcoal
-                            )
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
                         val loggingActive by com.example.data.repository.RadioLogger.isLoggingActive.collectAsStateWithLifecycle()
                         val secsRemaining by com.example.data.repository.RadioLogger.secondsRemaining.collectAsStateWithLifecycle()
                         
@@ -16770,32 +16531,6 @@ fun DrawerControlPanelContent(
                             checked = loggingActive,
                             onCheckedChange = {
                                 com.example.data.repository.RadioLogger.toggleLogging(context)
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = CyberDark,
-                                checkedTrackColor = CyberTeal,
-                                uncheckedThumbColor = Color.Gray,
-                                uncheckedTrackColor = CyberCharcoal
-                            )
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Forzar Reanudación Automática", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
-                            Text("Reconecta y reanuda el buffer FTP congelado automáticamente", color = Color.Gray, fontSize = 9.sp)
-                        }
-                        Switch(
-                            checked = radioForceResumeOnBufferFreeze,
-                            onCheckedChange = { checked ->
-                                radioForceResumeOnBufferFreeze = checked
-                                prefs.edit().putBoolean("radio_force_resume_on_buffer_freeze", checked).apply()
                             },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = CyberDark,
@@ -17414,6 +17149,48 @@ fun DrawerControlPanelContent(
                                 onCheckedChange = { newValue ->
                                     ftpHeartbeatEnabled = newValue
                                     prefs.edit().putBoolean("ftp_heartbeat_enabled", newValue).apply()
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = CyberDark,
+                                    checkedTrackColor = CyberTeal,
+                                    uncheckedThumbColor = Color.Gray,
+                                    uncheckedTrackColor = CyberCharcoal
+                                )
+                            )
+                        }
+
+                        HorizontalDivider(color = CyberCharcoal, modifier = Modifier.padding(vertical = 8.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val checked = !radioForceResumeOnBufferFreeze
+                                    radioForceResumeOnBufferFreeze = checked
+                                    prefs.edit().putBoolean("radio_force_resume_on_buffer_freeze", checked).apply()
+                                }
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Forzar Reanudación Automática",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Reconecta y reanuda el buffer FTP congelado automáticamente",
+                                    color = Color.Gray,
+                                    fontSize = 8.sp
+                                )
+                            }
+                            Switch(
+                                checked = radioForceResumeOnBufferFreeze,
+                                onCheckedChange = { checked ->
+                                    radioForceResumeOnBufferFreeze = checked
+                                    prefs.edit().putBoolean("radio_force_resume_on_buffer_freeze", checked).apply()
                                 },
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = CyberDark,

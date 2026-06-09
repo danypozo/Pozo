@@ -721,8 +721,6 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                     val ctx = appContext
                     if (ctx != null) {
                         val prefs = ctx.getSharedPreferences("ftp_hub_settings", Context.MODE_PRIVATE)
-                        val autoReconnectLive = prefs.getBoolean("radio_auto_reconnect_live", true)
-                        val reconnectPaused = prefs.getBoolean("radio_reconnect_paused_enabled", false)
                         val forceResume = prefs.getBoolean("radio_force_resume_on_buffer_freeze", true)
                         
                         var shouldReconnect = false
@@ -765,7 +763,7 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                             consecutiveFailures = 0
                         }
                         
-                        if (shouldReconnect && (autoReconnectLive || reconnectPaused || forceResume || consecutiveFailures < 3)) {
+                        if (shouldReconnect) {
                             Log.i("AudioPlayerManager", "Auto-reconnect monitor: Reconnecting... Reason: $reason, consecutiveFailures: $consecutiveFailures")
                             
                             bufferingSeconds = 0
@@ -2314,12 +2312,11 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
         
         val prefs = context.getSharedPreferences("ftp_hub_settings", Context.MODE_PRIVATE)
         val autoTimeshift = prefs.getBoolean("auto_timeshift_enabled", false)
-        val reconnectPaused = prefs.getBoolean("radio_reconnect_paused_enabled", false)
         val timeshiftOnPause = prefs.getBoolean("timeshift_on_pause_enabled", true)
 
         if (!_isRadioLiveMode.value) {
             Log.d(TAG, "reconnectRadioStream - Running in Timeshift (non-live). Just restarting recording thread.")
-            if (autoTimeshift || reconnectPaused || timeshiftOnPause) {
+            if (autoTimeshift || timeshiftOnPause) {
                 startRadioRecording(context, track.filePath, keepExistingFile = true)
             }
             return
@@ -2336,7 +2333,7 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
         mediaPlayer = null
         releaseAudioFx()
         
-        if (autoTimeshift || reconnectPaused || timeshiftOnPause) {
+        if (autoTimeshift || timeshiftOnPause) {
             // Keep the existing file and job running!
             startRadioRecording(context, track.filePath, keepExistingFile = true)
         }
@@ -2680,20 +2677,14 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                 return true
             }
             appContext?.let { ctx ->
-                val prefs = ctx.getSharedPreferences("ftp_hub_settings", Context.MODE_PRIVATE)
-                val autoReconnectLive = prefs.getBoolean("radio_auto_reconnect_live", true)
-                val reconnectPaused = prefs.getBoolean("radio_reconnect_paused_enabled", false)
-
-                if (autoReconnectLive || reconnectPaused) {
-                    _isBuffering.value = true
-                    _isPlaying.value = true
-                    scope.launch {
-                        kotlinx.coroutines.delay(2000)
-                        Log.i(TAG, "Attempting auto-reconnect for radio stream on error (reconnectPaused: $reconnectPaused)...")
-                        ensureRadioReconnected(ctx)
-                    }
-                    return true
+                _isBuffering.value = true
+                _isPlaying.value = true
+                scope.launch {
+                    kotlinx.coroutines.delay(2000)
+                    Log.i(TAG, "Attempting auto-reconnect for radio stream on error...")
+                    ensureRadioReconnected(ctx)
                 }
+                return true
             }
         }
 
@@ -2738,23 +2729,7 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
     fun togglePlayPause(context: Context? = null) {
         val track = _currentTrack.value
         if (_isPlaying.value) {
-            val ctx = context ?: appContext
-            val prefs = ctx?.getSharedPreferences("ftp_hub_settings", Context.MODE_PRIVATE)
-            val twoTapsEnabled = prefs?.getBoolean("two_taps_to_pause_enabled", false) ?: false
-            if (twoTapsEnabled) {
-                val now = System.currentTimeMillis()
-                if (now - lastPauseTapTime < 1000) {
-                    pausePlayback()
-                    lastPauseTapTime = 0L
-                } else {
-                    lastPauseTapTime = now
-                    try {
-                        Toast.makeText(ctx, "Pulsa otra vez para pausar ⏸️", Toast.LENGTH_SHORT).show()
-                    } catch (_: Exception) {}
-                }
-            } else {
-                pausePlayback()
-            }
+            pausePlayback()
         } else {
             val player = mediaPlayer
             if (player == null || (track != null && track.playlistId == -2 && radioRecordingJob == null)) {
@@ -3177,7 +3152,7 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                             if (!isRadio || (!_isRadioLiveMode.value && !isRadioTimeshiftBuffering)) {
                                 _isPlaying.value = false
                             } else {
-                                RadioLogger.log("Corrección de inconsistencia bloqueada: El reproductor de radio retornó isPlaying=false temporalmente, pero se ignoró la pausa forzada por estar en transmisión activa (Directo o Timeshift con descarga activa).")
+                                Log.d(TAG, "Inconsistency blocked: Radio player reported isPlaying=false temporarily, but ignored forced pause because stream is active (Live or Timeshift). Reconnecting...")
                                 if (isRadio && !_isRadioLiveMode.value) {
                                     appContext?.let { ctx ->
                                         Log.i(TAG, "Timeshift player is stalled/paused but play mode is active. Automatically re-preparing/resuming Timeshift...")

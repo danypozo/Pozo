@@ -3112,8 +3112,12 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                                     
                                     // Catch up with live stream buffer automatically!
                                     if (posSec >= _radioElapsedTimeSec.value - 10) {
-                                        Log.i(TAG, "Caught up with live stream buffer in Timeshift. Going LIVE...")
-                                        goLiveRadio()
+                                        if (radioRecordingJob == null) {
+                                            Log.i(TAG, "Caught up with live stream buffer in Timeshift. Going LIVE...")
+                                            goLiveRadio()
+                                        } else {
+                                            Log.d(TAG, "Caught up with buffer, but radioRecordingJob is active. Stay at current play position.")
+                                        }
                                     }
                                 }
                             } catch (_: Exception) {}
@@ -3151,8 +3155,6 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                             // Inconsistency detected: state is playing but player is paused/stuck. Setting _isPlaying = false.
                             if (!isRadio) {
                                 _isPlaying.value = false
-                            } else {
-                                RadioLogger.log("Corrección de inconsistencia bloqueada: El reproductor de radio retornó isPlaying=false temporalmente, pero se ignoró la pausa forzada por estar en radio/timeshift.")
                             }
                         }
                     } catch (e: Exception) {

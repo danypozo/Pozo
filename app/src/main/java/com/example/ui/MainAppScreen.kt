@@ -11591,13 +11591,23 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                         contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()
                     ) { uri ->
                         if (uri != null) {
+                            try {
+                                val takeFlags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                        android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                                context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                            
                             val resolvedPath = getPathFromDocumentTreeUri(uri)
+                            val uriStr = uri.toString()
+                            logPrefs.edit().putString("radio_logs_destination_uri", uriStr).apply()
+                            
                             if (resolvedPath != null) {
                                 logsPath = resolvedPath
                                 logPrefs.edit().putString("radio_logs_destination_dir", resolvedPath).apply()
                                 Toast.makeText(context, "Destino de logs: $resolvedPath", Toast.LENGTH_LONG).show()
                             } else {
-                                val uriStr = uri.toString()
                                 logsPath = uriStr
                                 logPrefs.edit().putString("radio_logs_destination_dir", uriStr).apply()
                                 Toast.makeText(context, "URI guardado para logs", Toast.LENGTH_SHORT).show()
@@ -11681,6 +11691,7 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                             onClick = {
                                                 logsPath = ""
                                                 logPrefs.edit().putString("radio_logs_destination_dir", "").apply()
+                                                logPrefs.edit().putString("radio_logs_destination_uri", "").apply()
                                                 Toast.makeText(context, "Se restableció a la carpeta interna por defecto", Toast.LENGTH_SHORT).show()
                                             },
                                             modifier = Modifier.align(Alignment.End)
@@ -11789,7 +11800,7 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                     modifier = Modifier.fillMaxWidth(),
                                     onClick = {
                                         try {
-                                            viewedLogContent = file.readText()
+                                            viewedLogContent = file.readText(context)
                                             viewedLogName = file.name
                                         } catch (e: Exception) {
                                             Toast.makeText(context, "Error leyendo log: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -11808,8 +11819,8 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                                             Spacer(modifier = Modifier.width(10.dp))
                                             Column {
                                                 Text(file.name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                val kb = String.format("%.2f", file.length().toFloat() / 1024f)
-                                                Text("${kb} KB • Modificado: ${android.text.format.DateFormat.format("dd/MM/yyyy HH:mm:ss", file.lastModified())}", color = Color.Gray, fontSize = 10.sp)
+                                                val kb = String.format("%.2f", file.sizeBytes.toFloat() / 1024f)
+                                                Text("${kb} KB • Modificado: ${android.text.format.DateFormat.format("dd/MM/yyyy HH:mm:ss", file.lastModified)}", color = Color.Gray, fontSize = 10.sp)
                                             }
                                         }
                                         Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(18.dp))

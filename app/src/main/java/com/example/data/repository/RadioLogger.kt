@@ -24,6 +24,24 @@ object RadioLogger {
     private var currentLogFile: File? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     
+    fun getLogsDirectory(context: Context): File {
+        val prefs = context.getSharedPreferences("ftp_hub_settings", Context.MODE_PRIVATE)
+        val customPath = prefs.getString("radio_logs_destination_dir", null)
+        val dir = if (!customPath.isNullOrBlank()) {
+            File(customPath)
+        } else {
+            File(context.filesDir, "logs")
+        }
+        try {
+            if (!dir.exists()) {
+                dir.mkdirs()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error creacion de logsDir: ${e.message}")
+        }
+        return dir
+    }
+    
     fun toggleLogging(context: Context) {
         if (_isLoggingActive.value) {
             stopLogging()
@@ -36,10 +54,7 @@ object RadioLogger {
         if (_isLoggingActive.value) return
         
         try {
-            val logsDir = File(context.filesDir, "logs")
-            if (!logsDir.exists()) {
-                logsDir.mkdirs()
-            }
+            val logsDir = getLogsDirectory(context)
             
             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
             val file = File(logsDir, "radio_log_$timestamp.txt")
@@ -125,13 +140,13 @@ object RadioLogger {
     }
     
     fun getLogFiles(context: Context): List<File> {
-        val logsDir = File(context.filesDir, "logs")
+        val logsDir = getLogsDirectory(context)
         if (!logsDir.exists()) return emptyList()
         return logsDir.listFiles()?.filter { it.isFile && it.name.startsWith("radio_log_") }?.sortedByDescending { it.lastModified() } ?: emptyList()
     }
     
     fun clearLogs(context: Context) {
-        val logsDir = File(context.filesDir, "logs")
+        val logsDir = getLogsDirectory(context)
         if (logsDir.exists()) {
             logsDir.listFiles()?.forEach { it.delete() }
         }

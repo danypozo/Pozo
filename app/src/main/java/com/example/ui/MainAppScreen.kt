@@ -4642,28 +4642,8 @@ fun LocalLibraryDetailsScreen(viewModel: FtpViewModel, showOnlyFtp: Boolean = fa
                     tint = CyberTeal,
                     modifier = Modifier.size(16.dp)
                 )
-                val totalSeconds = remember(scannedTracks) {
-                    scannedTracks.sumOf { track ->
-                        try {
-                            val parts = track.durationText.split(":")
-                            if (parts.size == 2) {
-                                val mins = parts[0].toIntOrNull() ?: 0
-                                val secs = parts[1].toIntOrNull() ?: 0
-                                mins * 60 + secs
-                            } else {
-                                180
-                            }
-                        } catch (_: Exception) {
-                            180
-                        }
-                    }
-                }
-                val totalMins = totalSeconds / 60
-                val remainingSecs = totalSeconds % 60
-                val durationLabel = if (totalSeconds > 0) " (${totalMins} min ${remainingSecs} seg)" else ""
-
                 Text(
-                    text = "${scannedTracks.size} pistas$durationLabel",
+                    text = "${scannedTracks.size} pistas",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
@@ -11599,9 +11579,31 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                     // TAB 11: LOGS DE RADIO
                     val loggingActive by com.example.data.repository.RadioLogger.isLoggingActive.collectAsStateWithLifecycle()
                     val secsRemaining by com.example.data.repository.RadioLogger.secondsRemaining.collectAsStateWithLifecycle()
-                    var logFiles by remember { mutableStateOf(com.example.data.repository.RadioLogger.getLogFiles(context)) }
+                    
+                    val logPrefs = remember { context.getSharedPreferences("ftp_hub_settings", android.content.Context.MODE_PRIVATE) }
+                    var logsPath by remember { mutableStateOf(logPrefs.getString("radio_logs_destination_dir", "") ?: "") }
+                    var logFiles by remember(logsPath) { mutableStateOf(com.example.data.repository.RadioLogger.getLogFiles(context)) }
+                    
                     var viewedLogContent by remember { mutableStateOf<String?>(null) }
                     var viewedLogName by remember { mutableStateOf<String?>(null) }
+                    
+                    val logsDirLauncher = rememberLauncherForActivityResult(
+                        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()
+                    ) { uri ->
+                        if (uri != null) {
+                            val resolvedPath = getPathFromDocumentTreeUri(uri)
+                            if (resolvedPath != null) {
+                                logsPath = resolvedPath
+                                logPrefs.edit().putString("radio_logs_destination_dir", resolvedPath).apply()
+                                Toast.makeText(context, "Destino de logs: $resolvedPath", Toast.LENGTH_LONG).show()
+                            } else {
+                                val uriStr = uri.toString()
+                                logsPath = uriStr
+                                logPrefs.edit().putString("radio_logs_destination_dir", uriStr).apply()
+                                Toast.makeText(context, "URI guardado para logs", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
                     
                     LazyColumn(
                         modifier = Modifier
@@ -11609,6 +11611,86 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Folder,
+                                            contentDescription = null,
+                                            tint = CyberTeal,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Ruta de Guardado de Logs",
+                                            color = Color.White,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Text(
+                                        text = "Configura una carpeta accesible (por ejemplo, la carpeta general de la app o descargas) para poder extraer o leer con exploradores externos los archivos de texto (.txt) de depuración.",
+                                        color = Color.Gray,
+                                        fontSize = 11.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedTextField(
+                                            value = if (logsPath.isEmpty()) "Carpeta Interna de la App (Oculta/Protegida)" else logsPath,
+                                            onValueChange = {},
+                                            readOnly = true,
+                                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = Color.White),
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(8.dp),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = CyberTeal,
+                                                unfocusedBorderColor = CyberCharcoal,
+                                                unfocusedContainerColor = CyberCharcoal,
+                                                focusedContainerColor = CyberCharcoal
+                                            )
+                                        )
+                                        
+                                        IconButton(
+                                            onClick = { logsDirLauncher.launch(null) },
+                                            modifier = Modifier
+                                                .background(CyberTeal, RoundedCornerShape(8.dp))
+                                                .size(48.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.FolderOpen,
+                                                contentDescription = "Elegir carpeta",
+                                                tint = Color.Black,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                    if (logsPath.isNotEmpty()) {
+                                        TextButton(
+                                            onClick = {
+                                                logsPath = ""
+                                                logPrefs.edit().putString("radio_logs_destination_dir", "").apply()
+                                                Toast.makeText(context, "Se restableció a la carpeta interna por defecto", Toast.LENGTH_SHORT).show()
+                                            },
+                                            modifier = Modifier.align(Alignment.End)
+                                        ) {
+                                            Text("RESTAURAR A POR DEFECTO", color = WarningHotPink, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         item {
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = CyberSurface),

@@ -1535,7 +1535,12 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
         _radioPlayPositionSec.value = clampedSec
 
         if (clampedSec >= _radioElapsedTimeSec.value - 12) {
-            goLiveRadio()
+            if (radioRecordingJob == null) {
+                goLiveRadio()
+            } else {
+                Log.d(TAG, "seekRadioTimeShift - near live edge but radioRecordingJob is active. Stay in timeshift.")
+                playRadioTimeShiftAt(clampedSec * 1000L)
+            }
         } else {
             playRadioTimeShiftAt(clampedSec * 1000L)
         }
@@ -2591,8 +2596,18 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                     Log.i(TAG, "Timeshift player hit EOF of prepared size, but buffer has more content. Re-preparing timeshift player at $currentPlayPosSec sec...")
                     playRadioTimeShiftAt(currentPlayPosSec * 1000L)
                 } else {
-                    Log.i(TAG, "Timeshift caught up or reached end. Going LIVE...")
-                    goLiveRadio()
+                    if (radioRecordingJob != null) {
+                        Log.i(TAG, "Timeshift reached end, but recording is active. Stay in timeshift and wait for more content to buffer...")
+                        scope.launch {
+                            kotlinx.coroutines.delay(2000)
+                            if (_isPlaying.value && !_isRadioLiveMode.value) {
+                                playRadioTimeShiftAt(currentPlayPosSec * 1000L)
+                            }
+                        }
+                    } else {
+                        Log.i(TAG, "Timeshift caught up or reached end. Going LIVE...")
+                        goLiveRadio()
+                    }
                 }
             }
             return
@@ -3153,12 +3168,14 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                             }
                         } else if (_isPlaying.value && !_isBuffering.value) {
                             // Inconsistency detected: state is playing but player is paused/stuck. Setting _isPlaying = false.
-                            if (!isRadio) {
+                            if (!isRadio || !_isRadioLiveMode.value) {
                                 _isPlaying.value = false
+                            } else {
+                                RadioLogger.log("Corrección de inconsistencia bloqueada: El reproductor de radio retornó isPlaying=false temporalmente, pero se ignoró la pausa forzada por estar en radio directo.")
                             }
                         }
                     } catch (e: Exception) {
-                        if (_isPlaying.value && !_isBuffering.value && !isRadio) {
+                        if (_isPlaying.value && !_isBuffering.value && (!isRadio || !_isRadioLiveMode.value)) {
                             _isPlaying.value = false
                         }
                     }

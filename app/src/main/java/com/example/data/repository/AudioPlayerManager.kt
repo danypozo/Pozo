@@ -2597,11 +2597,16 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                     playRadioTimeShiftAt(currentPlayPosSec * 1000L)
                 } else {
                     if (radioRecordingJob != null) {
-                        Log.i(TAG, "Timeshift reached end, but recording is active. Stay in timeshift and wait for more content to buffer...")
+                        Log.i(TAG, "Timeshift reached end, but recording is active. Setting buffering = true and waiting for more content to buffer...")
+                        _isBuffering.value = true
                         scope.launch {
                             kotlinx.coroutines.delay(2000)
                             if (_isPlaying.value && !_isRadioLiveMode.value) {
                                 playRadioTimeShiftAt(currentPlayPosSec * 1000L)
+                            } else {
+                                if (!userPressedPause) {
+                                    _isBuffering.value = false
+                                }
                             }
                         }
                     } else {
@@ -3168,14 +3173,22 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                             }
                         } else if (_isPlaying.value && !_isBuffering.value) {
                             // Inconsistency detected: state is playing but player is paused/stuck. Setting _isPlaying = false.
-                            if (!isRadio || !_isRadioLiveMode.value) {
+                            val isRadioTimeshiftBuffering = isRadio && !_isRadioLiveMode.value && radioRecordingJob != null
+                            if (!isRadio || (!_isRadioLiveMode.value && !isRadioTimeshiftBuffering)) {
                                 _isPlaying.value = false
                             } else {
-                                RadioLogger.log("Corrección de inconsistencia bloqueada: El reproductor de radio retornó isPlaying=false temporalmente, pero se ignoró la pausa forzada por estar en radio directo.")
+                                RadioLogger.log("Corrección de inconsistencia bloqueada: El reproductor de radio retornó isPlaying=false temporalmente, pero se ignoró la pausa forzada por estar en transmisión activa (Directo o Timeshift con descarga activa).")
+                                if (isRadio && !_isRadioLiveMode.value) {
+                                    appContext?.let { ctx ->
+                                        Log.i(TAG, "Timeshift player is stalled/paused but play mode is active. Automatically re-preparing/resuming Timeshift...")
+                                        ensureRadioReconnected(ctx)
+                                    }
+                                }
                             }
                         }
                     } catch (e: Exception) {
-                        if (_isPlaying.value && !_isBuffering.value && (!isRadio || !_isRadioLiveMode.value)) {
+                        val isRadioTimeshiftBuffering = isRadio && !_isRadioLiveMode.value && radioRecordingJob != null
+                        if (_isPlaying.value && !_isBuffering.value && (!isRadio || (!_isRadioLiveMode.value && !isRadioTimeshiftBuffering))) {
                             _isPlaying.value = false
                         }
                     }

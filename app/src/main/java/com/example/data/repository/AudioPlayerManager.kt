@@ -1438,14 +1438,39 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
 
         radioRecordingJob = scope.launch(Dispatchers.IO) {
             val tempFile = File(context.cacheDir, "timeshift_temp.mp3")
+            val preallocatedEnabled = prefs.getBoolean("radio_preallocated_buffer_enabled", false)
+            val targetSize = _radioBufferLimitMins.value * 60L * 24000L // 192kbps safe estimation
+
             try {
                 if (!keepExistingFile) {
                     if (tempFile.exists()) {
                         tempFile.delete()
                     }
                     tempFile.createNewFile()
+                    if (preallocatedEnabled) {
+                        try {
+                            java.io.RandomAccessFile(tempFile, "rw").use { raf ->
+                                raf.setLength(targetSize)
+                            }
+                            prefs.edit().putLong("timeshift_actual_written_bytes", 0L).apply()
+                            RadioLogger.log("startRadioRecording - Precalibrado búfer fijo de Timeshift: $targetSize bytes.")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error setting preallocated length: ${e.message}")
+                        }
+                    }
                 } else if (!tempFile.exists()) {
                     tempFile.createNewFile()
+                    if (preallocatedEnabled) {
+                        try {
+                            java.io.RandomAccessFile(tempFile, "rw").use { raf ->
+                                raf.setLength(targetSize)
+                            }
+                            prefs.edit().putLong("timeshift_actual_written_bytes", 0L).apply()
+                            RadioLogger.log("startRadioRecording - Precalibrado búfer fijo de Timeshift: $targetSize bytes.")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error setting preallocated length: ${e.message}")
+                        }
+                    }
                 }
                 radioRecordingFile = tempFile
             } catch (e: Exception) {
@@ -1453,11 +1478,19 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                 return@launch
             }
 
-            var bytesWritten = if (keepExistingFile) tempFile.length() else 0L
+            var bytesWritten = if (keepExistingFile) {
+                if (preallocatedEnabled) {
+                    prefs.getLong("timeshift_actual_written_bytes", 0L)
+                } else {
+                    tempFile.length()
+                }
+            } else {
+                0L
+            }
 
             while (radioRecordingJob?.isActive == true) {
                 var inputStream: java.io.InputStream? = null
-                var outputStream: FileOutputStream? = null
+                var outputStream: java.io.OutputStream? = null
                 var connection: HttpURLConnection? = null
                 try {
                     val resolvedUrl = resolveRadioStreamUrl(url)
@@ -1470,7 +1503,27 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                     connection.connect()
 
                     inputStream = BufferedInputStream(connection.inputStream)
-                    outputStream = FileOutputStream(tempFile, true) // Open in append mode!
+                    outputStream = if (preallocatedEnabled) {
+                        val raf = java.io.RandomAccessFile(tempFile, "rw")
+                        var currentOffset = bytesWritten
+                        object : java.io.OutputStream() {
+                            override fun write(b: Int) {
+                                raf.seek(currentOffset)
+                                raf.write(b)
+                                currentOffset++
+                            }
+                            override fun write(b: ByteArray, off: Int, len: Int) {
+                                raf.seek(currentOffset)
+                                raf.write(b, off, len)
+                                currentOffset += len
+                            }
+                            override fun close() {
+                                try { raf.close() } catch(_: Exception) {}
+                            }
+                        }
+                    } else {
+                        FileOutputStream(tempFile, true)
+                    }
 
                     val buffer = ByteArray(16384)
 
@@ -1487,9 +1540,12 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                             break // break inner loop to trigger reconnect/retry
                         }
 
-                        outputStream.write(buffer, 0, read)
+                        outputStream?.write(buffer, 0, read)
                         bytesWritten += read
                         _totalRecordedBytes.value = bytesWritten
+                        if (preallocatedEnabled) {
+                            prefs.edit().putLong("timeshift_actual_written_bytes", bytesWritten).apply()
+                        }
 
                         val startTime = radioStartTimeMs
                         if (startTime > 0L) {
@@ -1637,7 +1693,7 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                             .setUsage(AudioAttributes.USAGE_MEDIA)
                             .build()
                     )
-                    setDataSource(ProgressiveTimeshiftMediaDataSource(tempFile) { radioRecordingJob != null })
+                    setDataSource(tempFile.absolutePath)
 
                     setOnPreparedListener { mp ->
                         _isBuffering.value = false
@@ -1693,7 +1749,31 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                 targetDir.mkdirs()
             }
             val targetFile = File(targetDir, outputFileName)
-            tempFile.copyTo(targetFile, overwrite = true)
+            
+            val preallocatedEnabled = prefs.getBoolean("radio_preallocated_buffer_enabled", false)
+            if (preallocatedEnabled) {
+                val actualBytes = prefs.getLong("timeshift_actual_written_bytes", 0L)
+                if (actualBytes > 0) {
+                    val buffer = ByteArray(65536)
+                    java.io.FileInputStream(tempFile).use { fis ->
+                        java.io.FileOutputStream(targetFile).use { fos ->
+                            var bytesLeft = actualBytes
+                            while (bytesLeft > 0) {
+                                val toRead = minOf(buffer.size.toLong(), bytesLeft).toInt()
+                                val read = fis.read(buffer, 0, toRead)
+                                if (read == -1) break
+                                fos.write(buffer, 0, read)
+                                bytesLeft -= read
+                            }
+                        }
+                    }
+                    RadioLogger.log("saveRadioRecording - Guardado de buffer precalibrado exitoso. Copiados $actualBytes bytes reales de MP3.")
+                } else {
+                    tempFile.copyTo(targetFile, overwrite = true)
+                }
+            } else {
+                tempFile.copyTo(targetFile, overwrite = true)
+            }
 
             // Preservar podmarks de la radio en la grabación física (USER REQUEST)
             try {

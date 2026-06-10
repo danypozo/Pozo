@@ -7686,6 +7686,53 @@ fun AppSettingsDetailsScreen(viewModel: FtpViewModel, onNavigateToPlayer: () -> 
 
                                     Spacer(modifier = Modifier.height(12.dp))
 
+                                    // Option: Precalibrar Búfer Completo de Radio (Pre-allocated Buffer)
+                                    var radioPreallocatedEnabled by remember {
+                                        mutableStateOf(prefs.getBoolean("radio_preallocated_buffer_enabled", false))
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(CyberCharcoal, RoundedCornerShape(8.dp))
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text(
+                                                "Precalibrar Búfer de Radio ⚡📻",
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                             )
+                                             Text(
+                                                 "Pre-asigna un archivo de búfer de tamaño fijo (según límite de minutos) para el Timeshift. Evita mini-cortes al reproducir cerca del directo.",
+                                                 color = Color.Gray,
+                                                 fontSize = 10.sp
+                                             )
+                                         }
+                                         Switch(
+                                             checked = radioPreallocatedEnabled,
+                                             onCheckedChange = { checked ->
+                                                 radioPreallocatedEnabled = checked
+                                                 prefs.edit().putBoolean("radio_preallocated_buffer_enabled", checked).apply()
+                                                 if (checked) {
+                                                     Toast.makeText(context, "Modo Búfer Fijo Precalibrado activado 📻", Toast.LENGTH_SHORT).show()
+                                                 } else {
+                                                     Toast.makeText(context, "Modo Búfer Dinámico clásico activado", Toast.LENGTH_SHORT).show()
+                                                 }
+                                             },
+                                             colors = SwitchDefaults.colors(
+                                                 checkedThumbColor = CyberDark,
+                                                 checkedTrackColor = CyberTeal,
+                                                 uncheckedThumbColor = Color.Gray,
+                                                 uncheckedTrackColor = CyberCharcoal
+                                             )
+                                         )
+                                     }
+
+                                     Spacer(modifier = Modifier.height(12.dp))
+
                                     // Opt 6: Buffer Size selector
                                     var selectedBufferSize by remember {
                                         mutableStateOf(prefs.getString("ultra_fast_loading_buffer_size", "1mb") ?: "1mb")

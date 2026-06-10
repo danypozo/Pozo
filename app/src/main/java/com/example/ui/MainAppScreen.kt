@@ -14472,165 +14472,214 @@ fun PlayerTabSchema(viewModel: FtpViewModel, onNavigateToRecent: () -> Unit) {
 
                     // Sleek Telemetry Panel (Buffer Speed, Signal stability & Heatmap segments) - Borderless & Utra-thin
                     if (showRadioTelemetry) {
-                        Column(
+                        val totalBufferSizeMB = (currentLimitMins * 60f * 24000f) / (1024f * 1024f)
+                        val recordedBytesMB = totalRecBytes.toFloat() / 1024f / 1024f
+                        val bufferPercent = if (totalBufferSizeMB > 0f) (recordedBytesMB / totalBufferSizeMB * 100f).coerceIn(0f, 100f) else 0f
+
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 2.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                                .background(CyberCharcoal, RoundedCornerShape(12.dp))
+                                .border(1.dp, CyberTeal.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                                .padding(12.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                // Consolidating signal and stability with full complete names
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(5.dp)
-                                            .background(
-                                                if (radioDownloadSpeedKbps > 0f) CyberTeal else Color.Red,
-                                                CircleShape
-                                            )
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        "Velocidad de Señal: ",
-                                        color = Color.Gray,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Text(
-                                        text = "${String.format("%.1f", radioDownloadSpeedKbps)} KB/s",
-                                        color = CyberTeal,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        "Estabilidad de Conexión: ",
-                                        color = Color.Gray,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Text(
-                                        text = "${(radioSignalStability * 100).toInt()}%",
-                                        color = if (radioSignalStability > 0.7f) CyberTeal else if (radioSignalStability > 0.4f) Color.Yellow else Color.Red,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    "Historial de Búfer (15s):",
-                                    color = Color.Gray,
-                                    fontSize = 8.5.sp
-                                )
-                                
-                                if (radioElapsed > 0) {
-                                    Text(
-                                        text = "Grabado en búfer: ${String.format("%.2f", totalRecBytes.toFloat() / 1024f / 1024f)} MB",
-                                        color = CyberTeal,
-                                        fontSize = 8.5.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                            
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(6.dp),
-                                horizontalArrangement = Arrangement.spacedBy(1.dp)
-                            ) {
-                                radioHealthHistory.forEach { stabilityVal ->
-                                    val color = when {
-                                        stabilityVal > 0.8f -> CyberTeal
-                                        stabilityVal > 0.5f -> Color.Yellow.copy(alpha = 0.8f)
-                                        stabilityVal > 0.2f -> Color.Red.copy(alpha = 0.6f)
-                                        else -> CyberCharcoal
-                                    }
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .fillMaxHeight()
-                                            .background(color, RoundedCornerShape(1.dp))
-                                    )
-                                }
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (!isRadioLive) {
-                                    Text(
-                                        text = "Timeshift Activo ⏸️",
-                                        color = CyberTeal,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                } else {
-                                    Spacer(modifier = Modifier.width(1.dp))
-                                }
-                                
-                                // Visual Status Indicator for Connection & Reconnecting Attempts
-                                if (isRadioReconnecting) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        CircularProgressIndicator(
-                                            color = WarningHotPink,
-                                            strokeWidth = 1.dp,
-                                            modifier = Modifier.size(6.dp)
+                                        Icon(
+                                            imageVector = Icons.Default.Info,
+                                            contentDescription = null,
+                                            tint = CyberTeal,
+                                            modifier = Modifier.size(13.dp)
                                         )
-                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            "Reconectando...",
-                                            color = WarningHotPink,
-                                            fontSize = 8.sp,
+                                            "TARJETA DE BÚFER (TIMESHIFT) 📡",
+                                            color = Color.White,
+                                            fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
-                                } else if (isRadioLive && radioDownloadSpeedKbps <= 0f) {
+                                    Text(
+                                        text = if (isRadioLive) "MODALIDAD: LIVE 🔴" else "TIMESHIFT ⏸️",
+                                        color = if (isRadioLive) Color.Red else CyberTeal,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            "Datos Grabados",
+                                            color = Color.Gray,
+                                            fontSize = 8.sp
+                                        )
+                                        Text(
+                                            text = "${String.format("%.2f", recordedBytesMB)} MB de ${String.format("%.2f", totalBufferSizeMB)} MB",
+                                            color = CyberTeal,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            "Tiempo Acumulado",
+                                            color = Color.Gray,
+                                            fontSize = 8.sp
+                                        )
+                                        Text(
+                                            text = if (radioElapsed > 0) {
+                                                "${formatSec(radioElapsed)} de ${formatSec(currentLimitMins * 60)} min"
+                                            } else {
+                                                "00:00 de ${currentLimitMins}:00 min"
+                                            },
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
+                                // Nice subtle progress bar for the buffer size progress
+                                val visualProgress = if (totalBufferSizeMB > 0f) (recordedBytesMB / totalBufferSizeMB).coerceIn(0f, 1f) else 0f
+                                LinearProgressIndicator(
+                                    progress = { visualProgress },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(4.dp)
+                                        .background(Color.Gray.copy(alpha = 0.1f), RoundedCornerShape(2.dp)),
+                                    color = CyberTeal,
+                                    trackColor = Color.Transparent
+                                )
+
+                                Spacer(modifier = Modifier.height(2.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Box(
                                             modifier = Modifier
                                                 .size(5.dp)
-                                                .background(Color.Yellow, CircleShape)
+                                                .background(
+                                                    if (radioDownloadSpeedKbps > 0f) CyberTeal else Color.Red,
+                                                    CircleShape
+                                                )
                                         )
-                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            "Sin red / Reintentando...",
-                                            color = Color.Yellow,
-                                            fontSize = 8.sp,
+                                            "Señal: ${String.format("%.1f", radioDownloadSpeedKbps)} KB/s",
+                                            color = Color.Gray,
+                                            fontSize = 9.sp,
                                             fontWeight = FontWeight.Medium
                                         )
                                     }
-                                } else {
-                                    val statusLabel = if (!isRadioLive) "Reproduciendo Búfer" else "Conectado"
+
                                     Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            "Estabilidad: ${(radioSignalStability * 100).toInt()}%",
+                                            color = if (radioSignalStability > 0.7f) CyberTeal else if (radioSignalStability > 0.4f) Color.Yellow else Color.Red,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "Historial de Búfer (15s):",
+                                        color = Color.Gray,
+                                        fontSize = 8.5.sp
+                                    )
+                                    
+                                    // Visual Status Indicator for Connection & Reconnecting Attempts
+                                    if (isRadioReconnecting) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            CircularProgressIndicator(
+                                                color = WarningHotPink,
+                                                strokeWidth = 1.dp,
+                                                modifier = Modifier.size(6.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text(
+                                                "Reconectando...",
+                                                color = WarningHotPink,
+                                                fontSize = 8.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    } else if (isRadioLive && radioDownloadSpeedKbps <= 0f) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(5.dp)
+                                                    .background(Color.Yellow, CircleShape)
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text(
+                                                "Sin red / Reintentando...",
+                                                color = Color.Yellow,
+                                                fontSize = 8.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    } else {
+                                        val statusLabel = if (!isRadioLive) "Reproduciendo Búfer" else "Conectado"
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(5.dp)
+                                                    .background(CyberTeal, CircleShape)
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text(
+                                                statusLabel,
+                                                color = CyberTeal,
+                                                fontSize = 8.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
+                                }
+                                
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(1.dp)
+                                ) {
+                                    radioHealthHistory.forEach { stabilityVal ->
+                                        val color = when {
+                                            stabilityVal > 0.8f -> CyberTeal
+                                            stabilityVal > 0.5f -> Color.Yellow.copy(alpha = 0.8f)
+                                            stabilityVal > 0.2f -> Color.Red.copy(alpha = 0.6f)
+                                            else -> CyberCharcoal
+                                        }
                                         Box(
                                             modifier = Modifier
-                                                .size(5.dp)
-                                                .background(CyberTeal, CircleShape)
-                                         )
-                                         Spacer(modifier = Modifier.width(3.dp))
-                                         Text(
-                                             statusLabel,
-                                             color = CyberTeal,
-                                             fontSize = 8.sp,
-                                             fontWeight = FontWeight.Medium
-                                         )
-                                     }
-                                 }
+                                                .weight(1f)
+                                                .fillMaxHeight()
+                                                .background(color, RoundedCornerShape(1.dp))
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

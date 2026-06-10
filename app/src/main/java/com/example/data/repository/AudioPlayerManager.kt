@@ -1637,7 +1637,7 @@ object AudioPlayerManager : MediaPlayer.OnPreparedListener, MediaPlayer.OnComple
                             .setUsage(AudioAttributes.USAGE_MEDIA)
                             .build()
                     )
-                    setDataSource(tempFile.absolutePath)
+                    setDataSource(ProgressiveTimeshiftMediaDataSource(tempFile) { radioRecordingJob != null })
 
                     setOnPreparedListener { mp ->
                         _isBuffering.value = false
@@ -3789,6 +3789,85 @@ class ProgressiveFtpMediaDataSource(
 
     override fun getSize(): Long {
         return totalSize
+    }
+
+    @Synchronized
+    override fun close() {
+        try {
+            randomAccessFile?.close()
+        } catch (_: Exception) {}
+        randomAccessFile = null
+    }
+}
+
+@android.annotation.TargetApi(android.os.Build.VERSION_CODES.M)
+class ProgressiveTimeshiftMediaDataSource(
+    private val file: File,
+    private val isRecordingActive: () -> Boolean
+) : android.media.MediaDataSource() {
+
+    private var randomAccessFile: java.io.RandomAccessFile? = null
+
+    private fun getRaf(): java.io.RandomAccessFile {
+        var raf = randomAccessFile
+        if (raf == null) {
+            raf = java.io.RandomAccessFile(file, "r")
+            randomAccessFile = raf
+        }
+        return raf
+    }
+
+    @Synchronized
+    override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
+        if (size <= 0) return 0
+
+        var currentFileLength = file.length()
+        val startTime = System.currentTimeMillis()
+
+        // Wait up to 10 seconds if the position we want to read hasn't been written to disk yet,
+        // as long as the radio recording process is active. This avoids premature EOF and 
+        // ensures a completely seamless buffer transition with zero cuts.
+        while (position >= currentFileLength && isRecordingActive()) {
+            if (System.currentTimeMillis() - startTime > 10000) {
+                break
+            }
+            try {
+                Thread.sleep(100)
+            } catch (_: InterruptedException) {
+                break
+            }
+            currentFileLength = file.length()
+        }
+
+        if (position >= currentFileLength) {
+            return -1 // EOF (either recording stopped or we timed out waiting)
+        }
+
+        val available = currentFileLength - position
+        val toRead = minOf(size.toLong(), available).toInt()
+        if (toRead <= 0) return -1
+
+        return try {
+            val raf = getRaf()
+            raf.seek(position)
+            raf.read(buffer, offset, toRead)
+        } catch (e: Exception) {
+            android.util.Log.e("TimeshiftDataSource", "Error reading timeshift at position $position: ${e.message}")
+            -1
+        }
+    }
+
+    override fun getSize(): Long {
+        // If the radio recording is active, we return a very large size so the player
+        // knows it can keep reading beyond the currently written size.
+        // We will default to a minimum of 300 Megabytes (approx 6-7 hours of streaming),
+        // or the actual file length plus 50MB, whichever is larger, to ensure the player 
+        // doesn't think it has reached the end.
+        return if (isRecordingActive()) {
+            maxOf(300 * 1024 * 1024L, file.length() + 50 * 1024 * 1024L)
+        } else {
+            file.length()
+        }
     }
 
     @Synchronized
